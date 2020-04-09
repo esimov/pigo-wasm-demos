@@ -36,12 +36,12 @@ type Canvas struct {
 	navigator js.Value
 	video     js.Value
 
-	showPupil    bool
-	showFace     bool
-	showEyeMask  bool
-	showFaceMask bool
-	showCoord    bool
-	drawCircle   bool
+	showPupil     bool
+	showFace      bool
+	showEyeMask   bool
+	showMouthMask bool
+	showCoord     bool
+	drawCircle    bool
 }
 
 type point struct {
@@ -49,21 +49,26 @@ type point struct {
 }
 
 var (
-	images = make([]js.Value, 6)
-	files  = []string{
+	eyemasks   = make([]js.Value, 6)
+	mouthmasks = make([]js.Value, 2)
+	sunglasses = []string{
+		"/images/neon-green.png",
 		"/images/neon-yellow.png",
 		"/images/sunglasses.png",
-		"/images/neon-green.png",
 		"/images/carnival.png",
 		"/images/carnival2.png",
 		"/images/neon-disco.png",
 	}
-	facemask      js.Value
-	maskImgWidth  int
-	maskImgHeight int
-	curImgWidth   int
-	curImgHeight  int
-	imgIdx        int
+	masks = []string{
+		"/images/surgical-mask.png",
+		"/images/surgical-mask-mustache.png",
+	}
+	eyeMaskWidth    int
+	eyeMaskHeight   int
+	mouthMaskWidth  int
+	mouthMaskHeight int
+	eyeMaskIdx      int
+	mouthMaskIdx    int
 )
 
 var det *detector.Detector
@@ -75,8 +80,8 @@ func NewCanvas() *Canvas {
 	c.doc = c.window.Get("document")
 	c.body = c.doc.Get("body")
 
-	c.windowSize.width = 1280
-	c.windowSize.height = 720
+	c.windowSize.width = 1024
+	c.windowSize.height = 640
 
 	c.canvas = c.doc.Call("createElement", "canvas")
 	c.canvas.Set("width", js.ValueOf(c.windowSize.width))
@@ -88,7 +93,7 @@ func NewCanvas() *Canvas {
 	c.showPupil = true
 	c.showFace = false
 	c.showEyeMask = true
-	c.showFaceMask = true
+	c.showMouthMask = false
 	c.drawCircle = false
 
 	det = detector.NewDetector()
@@ -100,21 +105,21 @@ func (c *Canvas) Render() {
 	var data = make([]byte, c.windowSize.width*c.windowSize.height*4)
 	c.done = make(chan struct{})
 
-	for i, file := range files {
+	for i, file := range sunglasses {
 		img := c.loadImage(file)
-		images[i] = js.Global().Call("eval", "new Image()")
-		images[i].Set("src", "data:image/png;base64,"+img)
+		eyemasks[i] = js.Global().Call("eval", "new Image()")
+		eyemasks[i].Set("src", "data:image/png;base64,"+img)
 	}
-	if c.showFaceMask {
-		facemask = js.Global().Call("eval", "new Image()")
-		facemask.Set("src", "data:image/png;base64,"+c.loadImage("/images/facemask2.png"))
+	eyeMaskWidth = js.ValueOf(eyemasks[0].Get("naturalWidth")).Int()
+	eyeMaskHeight = js.ValueOf(eyemasks[0].Get("naturalHeight")).Int()
 
-		maskImgWidth = js.ValueOf(facemask.Get("naturalWidth")).Int()
-		maskImgHeight = js.ValueOf(facemask.Get("naturalHeight")).Int()
+	for i, file := range masks {
+		img := c.loadImage(file)
+		mouthmasks[i] = js.Global().Call("eval", "new Image()")
+		mouthmasks[i].Set("src", "data:image/png;base64,"+img)
 	}
-
-	curImgWidth = js.ValueOf(images[0].Get("naturalWidth")).Int()
-	curImgHeight = js.ValueOf(images[0].Get("naturalHeight")).Int()
+	mouthMaskWidth = js.ValueOf(mouthmasks[0].Get("naturalWidth")).Int()
+	mouthMaskHeight = js.ValueOf(mouthmasks[0].Get("naturalHeight")).Int()
 
 	if err := det.UnpackCascades(); err == nil {
 		c.renderer = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
@@ -275,52 +280,53 @@ func (c *Canvas) drawDetection(dets [][]int) {
 				}
 				c.ctx.Call("stroke")
 
-				if c.showFaceMask && (p1.x != 0 && p2.y != 0) {
+				// Show mouth mask
+				if c.showMouthMask && (p1.x != 0 && p2.y != 0) {
 					points := det.DetectMouthPoints(leftPupil, rightPupil)
 					p1, p2 := points[0], points[1]
 
 					// Calculate the lean angle between the two mouth points.
 					angle := 1 - (math.Atan2(float64(p2[0]-p1[0]), float64(p2[1]-p1[1])) * 180 / math.Pi / 90)
-					if scale < maskImgWidth || scale < maskImgHeight {
-						if maskImgHeight > maskImgWidth {
-							imgScale = float64(scale) / float64(maskImgHeight)
+					if scale < mouthMaskWidth || scale < mouthMaskHeight {
+						if mouthMaskHeight > mouthMaskWidth {
+							imgScale = float64(scale) / float64(mouthMaskHeight)
 						} else {
-							imgScale = float64(scale) / float64(maskImgWidth)
+							imgScale = float64(scale) / float64(mouthMaskWidth)
 						}
 					}
-					width, height := float64(maskImgWidth)*imgScale*0.75, float64(maskImgHeight)*imgScale*0.75
+					width, height := float64(mouthMaskWidth)*imgScale*0.75, float64(mouthMaskHeight)*imgScale*0.75
 					tx := row - int(width/2)
 					ty := p1[1] + (p1[1]-p2[1])/2 - int(height*0.5)
 
 					c.ctx.Call("save")
 					c.ctx.Call("translate", js.ValueOf(tx).Int(), js.ValueOf(ty).Int())
 					c.ctx.Call("rotate", js.ValueOf(angle).Float())
-					c.ctx.Call("drawImage", facemask,
+					c.ctx.Call("drawImage", mouthmasks[mouthMaskIdx],
 						js.ValueOf(0).Int(), js.ValueOf(0).Int(),
 						js.ValueOf(width).Int(), js.ValueOf(height).Int(),
 					)
 					c.ctx.Call("restore")
 				}
-
+				// Show eye mask
 				if c.showEyeMask && (p1.x != 0 && p2.y != 0) {
 					// Calculate the lean angle between the pupils.
 					angle := 1 - (math.Atan2(float64(p2.y-p1.y), float64(p2.x-p1.x)) * 180 / math.Pi / 90)
-					if scale < curImgWidth || scale < curImgHeight {
-						if curImgHeight > curImgWidth {
-							imgScale = float64(scale) / float64(curImgHeight)
+					if scale < eyeMaskWidth || scale < eyeMaskHeight {
+						if eyeMaskHeight > eyeMaskWidth {
+							imgScale = float64(scale) / float64(eyeMaskHeight)
 						} else {
-							imgScale = float64(scale) / float64(curImgWidth)
+							imgScale = float64(scale) / float64(eyeMaskWidth)
 						}
 					}
 
-					width, height := float64(curImgWidth)*imgScale, float64(curImgHeight)*imgScale
+					width, height := float64(eyeMaskWidth)*imgScale, float64(eyeMaskHeight)*imgScale
 					tx := row - int(width/2)
 					ty := leftPupil.Row + (leftPupil.Row-rightPupil.Row)/2 - int(height/2)
 
 					c.ctx.Call("save")
 					c.ctx.Call("translate", js.ValueOf(tx).Int(), js.ValueOf(ty).Int())
 					c.ctx.Call("rotate", js.ValueOf(angle).Float())
-					c.ctx.Call("drawImage", images[imgIdx],
+					c.ctx.Call("drawImage", eyemasks[eyeMaskIdx],
 						js.ValueOf(0).Int(), js.ValueOf(0).Int(),
 						js.ValueOf(width).Int(), js.ValueOf(height).Int(),
 					)
@@ -347,21 +353,35 @@ func (c *Canvas) detectKeyPress() {
 		case keyCode.String() == "x":
 			c.showCoord = !c.showCoord
 		case keyCode.String() == "f":
-			c.showFaceMask = !c.showFaceMask
+			c.showMouthMask = !c.showMouthMask
 		case keyCode.String() == "w":
-			imgIdx++
-			if imgIdx > len(images)-1 {
-				imgIdx = 0
+			eyeMaskIdx++
+			if eyeMaskIdx > len(eyemasks)-1 {
+				eyeMaskIdx = 0
 			}
-			curImgWidth = js.ValueOf(images[imgIdx].Get("naturalWidth")).Int()
-			curImgHeight = js.ValueOf(images[imgIdx].Get("naturalHeight")).Int()
+			eyeMaskWidth = js.ValueOf(eyemasks[eyeMaskIdx].Get("naturalWidth")).Int()
+			eyeMaskHeight = js.ValueOf(eyemasks[eyeMaskIdx].Get("naturalHeight")).Int()
 		case keyCode.String() == "s":
-			imgIdx--
-			if imgIdx < 0 {
-				imgIdx = len(images) - 1
+			eyeMaskIdx--
+			if eyeMaskIdx < 0 {
+				eyeMaskIdx = len(eyemasks) - 1
 			}
-			curImgWidth = js.ValueOf(images[imgIdx].Get("naturalWidth")).Int()
-			curImgHeight = js.ValueOf(images[imgIdx].Get("naturalHeight")).Int()
+			eyeMaskWidth = js.ValueOf(eyemasks[eyeMaskIdx].Get("naturalWidth")).Int()
+			eyeMaskHeight = js.ValueOf(eyemasks[eyeMaskIdx].Get("naturalHeight")).Int()
+		case keyCode.String() == "z":
+			mouthMaskIdx++
+			if mouthMaskIdx > len(mouthmasks)-1 {
+				mouthMaskIdx = 0
+			}
+			mouthMaskWidth = js.ValueOf(mouthmasks[mouthMaskIdx].Get("naturalWidth")).Int()
+			mouthMaskHeight = js.ValueOf(mouthmasks[mouthMaskIdx].Get("naturalHeight")).Int()
+		case keyCode.String() == "x":
+			mouthMaskIdx--
+			if mouthMaskIdx < 0 {
+				mouthMaskIdx = len(mouthmasks) - 1
+			}
+			mouthMaskWidth = js.ValueOf(mouthmasks[mouthMaskIdx].Get("naturalWidth")).Int()
+			mouthMaskHeight = js.ValueOf(mouthmasks[mouthMaskIdx].Get("naturalHeight")).Int()
 		default:
 			c.drawCircle = false
 		}
