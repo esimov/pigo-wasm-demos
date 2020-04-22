@@ -14,11 +14,16 @@ endif
 
 all: wasm serve
 
-demo: masquerade serve
+demo1: masquerade serve
+demo2: pixelate serve
 
 masquerade:
 	cp -f "$$(go env GOROOT)/misc/wasm/wasm_exec.js" ./js/
 	GOOS=js GOARCH=wasm go build -o lib.wasm masquerade.go
+
+pixelate:
+	cp -f "$$(go env GOROOT)/misc/wasm/wasm_exec.js" ./js/
+	GOOS=js GOARCH=wasm go build -o lib.wasm pixelate.go
 
 serve:
 	$(BROWSER) 'http://localhost:5000'
