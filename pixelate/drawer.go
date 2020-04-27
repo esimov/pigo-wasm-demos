@@ -8,25 +8,18 @@ import (
 	"github.com/fogleman/gg"
 )
 
-type pt struct {
-	x, y float64
-}
-
-type cell struct {
-	pt
-	cellSize  float64
-	cellColor color.NRGBA64
-}
-
 type context struct {
 	*gg.Context
 }
 
+// Brightness factor
+var bf = 1.0005
+
 // Draw creates uniform cells with the quantified cell color of the source image.
-func (quant *Quant) Draw(input image.Image, nq int, cs int) image.Image {
+func (quant *Quant) Draw(img image.Image, numOfColors int, csize int) image.Image {
 	var cellSize int
 
-	dx, dy := input.Bounds().Dx(), input.Bounds().Dy()
+	dx, dy := img.Bounds().Dx(), img.Bounds().Dy()
 	imgRatio := func(w, h int) float64 {
 		var ratio float64
 		if w > h {
@@ -37,13 +30,12 @@ func (quant *Quant) Draw(input image.Image, nq int, cs int) image.Image {
 		return ratio
 	}
 
-	if cs == 0 {
+	if csize == 0 {
 		cellSize = int(round(imgRatio(dx, dy) * 0.015))
 	} else {
-		cellSize = cs
+		cellSize = csize
 	}
-	qimg := quant.Quantize(input, nq)
-	nrgbaImg := convertToNRGBA64(qimg)
+	qimg := quant.Quantize(img, numOfColors)
 
 	ctx := &context{gg.NewContext(dx, dy)}
 	ctx.SetRGB(1, 1, 1)
@@ -52,37 +44,27 @@ func (quant *Quant) Draw(input image.Image, nq int, cs int) image.Image {
 
 	for x := 0; x < dx; x += cellSize {
 		for y := 0; y < dy; y += cellSize {
-			xx := x + (cellSize / 2)
-			yy := y + (cellSize / 2)
-
-			if xx < dx && yy < dy {
-				subImg := nrgbaImg.SubImage(image.Rect(x, y, x+cellSize, y+cellSize)).(*image.NRGBA64)
-				cellColor := getAvgColor(subImg)
-				ctx.drawCell(float64(x), float64(y), float64(xx), float64(yy), float64(cellSize), cellColor)
+			rect := image.Rect(x, y, x+cellSize, y+cellSize)
+			rect = rect.Intersect(qimg.Bounds())
+			if rect.Empty() {
+				rect = image.ZR
 			}
+			subImg := image.NewNRGBA64(qimg.Bounds()).SubImage(rect).(*image.NRGBA64)
+			cellColor := getAvgColor(subImg)
+			ctx.drawCell(float64(x), float64(y), float64(cellSize), cellColor)
 		}
 	}
-
-	img := ctx.Image()
-	noisyImg := noise(10, img, img.Bounds().Dx(), img.Bounds().Dy())
+	ctxImg := ctx.Image()
+	noisyImg := noise(10, ctxImg, dx, dy)
 
 	return noisyImg
 }
 
 // drawCell draws the cell filling up with the quantified color
-func (ctx *context) drawCell(x, y, xx, yy, cellSize float64, c color.NRGBA64) *cell {
-	// Brightness factor
-	var bf = 1.0005
-
+func (ctx *context) drawCell(x, y, cellSize float64, c color.NRGBA64) {
 	ctx.DrawRectangle(x, y, x+cellSize, y+cellSize)
 	ctx.SetRGBA(float64(c.R/255^0xff)*bf, float64(c.G/255^0xff)*bf, float64(c.B/255^0xff)*bf, 1)
 	ctx.Fill()
-
-	return &cell{
-		pt{x: x, y: y},
-		cellSize,
-		c,
-	}
 }
 
 // getAvgColor get the average color of a cell

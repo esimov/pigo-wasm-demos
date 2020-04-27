@@ -32,10 +32,15 @@ type Canvas struct {
 	navigator js.Value
 	video     js.Value
 
+	// Canvas interaction related variables
 	showPupil  bool
 	drawCircle bool
 
-	pixelated *image.NRGBA
+	// Quantizer related variables
+	numOfColors int
+	cellSize    int
+
+	frame *image.NRGBA
 }
 
 // SubImager is a wrapper implementing the SubImage method from the image package.
@@ -68,7 +73,10 @@ func NewCanvas() *Canvas {
 	c.showPupil = false
 	c.drawCircle = false
 
-	c.pixelated = image.NewNRGBA(image.Rect(0, 0, c.windowSize.width, c.windowSize.height))
+	c.numOfColors = 32
+	c.cellSize = 10
+
+	c.frame = image.NewNRGBA(image.Rect(0, 0, c.windowSize.width, c.windowSize.height))
 	det = detector.NewDetector()
 	quant = Quant{}
 
@@ -76,37 +84,41 @@ func NewCanvas() *Canvas {
 }
 
 // Render calls the `requestAnimationFrame` Javascript function in asynchronous mode.
-func (c *Canvas) Render() {
+func (c *Canvas) Render() error {
 	var data = make([]byte, c.windowSize.width*c.windowSize.height*4)
 	c.done = make(chan struct{})
 
-	if err := det.UnpackCascades(); err == nil {
-		c.renderer = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-			go func() {
-				c.window.Get("stats").Call("begin")
-
-				width, height := c.windowSize.width, c.windowSize.height
-				c.reqID = c.window.Call("requestAnimationFrame", c.renderer)
-				// Draw the webcam frame to the canvas element
-				c.ctx.Call("drawImage", c.video, 0, 0)
-				rgba := c.ctx.Call("getImageData", 0, 0, width, height).Get("data")
-
-				// Convert the rgba value of type Uint8ClampedArray to Uint8Array in order to
-				// be able to transfer it from Javascript to Go via the js.CopyBytesToGo function.
-				uint8Arr := js.Global().Get("Uint8Array").New(rgba)
-				js.CopyBytesToGo(data, uint8Arr)
-				gray := c.rgbaToGrayscale(data)
-				res := det.DetectFaces(gray, height, width)
-				c.drawDetection(data, res)
-
-				c.window.Get("stats").Call("end")
-			}()
-			return nil
-		})
-		c.window.Call("requestAnimationFrame", c.renderer)
-		c.detectKeyPress()
-		<-c.done
+	err := det.UnpackCascades()
+	if err != nil {
+		return err
 	}
+	c.renderer = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		go func() {
+			c.window.Get("stats").Call("begin")
+
+			width, height := c.windowSize.width, c.windowSize.height
+			c.reqID = c.window.Call("requestAnimationFrame", c.renderer)
+			// Draw the webcam frame to the canvas element
+			c.ctx.Call("drawImage", c.video, 0, 0)
+			rgba := c.ctx.Call("getImageData", 0, 0, width, height).Get("data")
+
+			// Convert the rgba value of type Uint8ClampedArray to Uint8Array in order to
+			// be able to transfer it from Javascript to Go via the js.CopyBytesToGo function.
+			uint8Arr := js.Global().Get("Uint8Array").New(rgba)
+			js.CopyBytesToGo(data, uint8Arr)
+			gray := c.rgbaToGrayscale(data)
+			res := det.DetectFaces(gray, height, width)
+			c.drawDetection(data, res)
+
+			c.window.Get("stats").Call("end")
+		}()
+		return nil
+	})
+	c.window.Call("requestAnimationFrame", c.renderer)
+	c.detectKeyPress()
+	<-c.done
+
+	return nil
 }
 
 // Stop stops the rendering.
@@ -188,9 +200,10 @@ func (c *Canvas) rgbaToGrayscale(data []uint8) []uint8 {
 	return data
 }
 
-// pixToImage converts the pixel array to an image.
+// pixToImage converts an array buffer to an image.
 func (c *Canvas) pixToImage(pixels []uint8) image.Image {
-	bounds := c.pixelated.Bounds()
+	bounds := c.frame.Bounds()
+	dx, dy := bounds.Max.X, bounds.Max.Y
 	col := color.NRGBA{
 		R: uint8(0),
 		G: uint8(0),
@@ -198,24 +211,50 @@ func (c *Canvas) pixToImage(pixels []uint8) image.Image {
 		A: uint8(255),
 	}
 
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X*3; x += 3 {
-			col.R = uint8(pixels[x+y*bounds.Dx()*3])
-			col.G = uint8(pixels[x+y*bounds.Dx()*3+1])
-			col.B = uint8(pixels[x+y*bounds.Dx()*3+2])
+	for y := bounds.Min.Y; y < dy; y++ {
+		for x := bounds.Min.X; x < dx*4; x += 4 {
+			col.R = uint8(pixels[x+y*dx*4])
+			col.G = uint8(pixels[x+y*dx*4+1])
+			col.B = uint8(pixels[x+y*dx*4+2])
+			col.A = uint8(pixels[x+y*dx*4+3])
 
-			c.pixelated.SetNRGBA(int(x/3), y, col)
+			c.frame.SetNRGBA(y, int(x/4), col)
 		}
 	}
-	return c.pixelated
+	return c.frame
+}
+
+// imgToPix converts an image to an array buffer
+func (c *Canvas) imgToPix(img image.Image) []uint8 {
+	bounds := img.Bounds()
+	pixels := make([]uint8, 0, bounds.Max.X*bounds.Max.Y*4)
+
+	for i := bounds.Min.X; i < bounds.Max.X; i++ {
+		for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
+			r, g, b, _ := img.At(i, j).RGBA()
+			pixels = append(pixels, uint8(r>>8), uint8(g>>8), uint8(b>>8), 255)
+		}
+	}
+	return pixels
 }
 
 // pixelateDetectedRegion pixelates the detected face region
-func (c *Canvas) pixelateDetectedRegion(data []uint8, dets []int) {
+func (c *Canvas) pixelateDetectedRegion(data []uint8, dets []int) []uint8 {
+	// Converts the array buffer to an image
 	img := c.pixToImage(data)
 	row, col, scale := dets[1], dets[0], dets[2]
-	face := img.(SubImager).SubImage(image.Rect(row-scale/2, col-scale/2, scale, scale))
-	fmt.Println(face)
+
+	// Extract the detected face region into separate image
+	sr := image.Rect(row-scale/2, col-scale/2, row+scale/2, col+scale/2)
+	face := img.(SubImager).SubImage(sr)
+
+	// rect := image.Rectangle{image.Point{0, 0}, image.Point{0, 0}.Add(sr.Size())}
+	// dst := image.NewNRGBA(rect)
+	// draw.Draw(dst, rect, face, sr.Min, draw.Src)
+
+	// cell := quant.Draw(dst, c.numOfColors, c.cellSize)
+	//fmt.Println(face.Bounds().Size())
+	return c.imgToPix(face)
 }
 
 // drawDetection draws the detected faces and eyes.
@@ -231,8 +270,16 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 				c.ctx.Call("moveTo", row+int(scale/2), col)
 				c.ctx.Call("arc", row, col, scale/2, 0, 2*math.Pi, true)
 			} else {
+				rect := image.Rect(row-scale/2, col-scale/2, row+scale/2, col+scale/2).Size()
 				c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
-				c.pixelateDetectedRegion(data, dets[i])
+
+				buffer := c.pixelateDetectedRegion(data, dets[i])
+				uint8Arr := js.Global().Get("Uint8Array").New(rect.X * rect.Y * 4)
+				js.CopyBytesToJS(uint8Arr, buffer)
+
+				uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
+				imageData := js.Global().Get("ImageData").New(uint8Clamped, rect.X)
+				c.ctx.Call("putImageData", imageData, row-scale/2, col-scale/2)
 			}
 			c.ctx.Call("stroke")
 

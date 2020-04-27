@@ -2,7 +2,11 @@
 
 package main
 
-import "github.com/esimov/pigo-wasm-demos/pixelate"
+import (
+	"fmt"
+
+	"github.com/esimov/pigo-wasm-demos/pixelate"
+)
 
 func main() {
 	c := pixelate.NewCanvas()
@@ -10,6 +14,9 @@ func main() {
 	if err != nil {
 		c.Alert("Webcam not detected!")
 	} else {
-		webcam.Render()
+		err := webcam.Render()
+		if err != nil {
+			c.Alert(fmt.Sprint(err))
+		}
 	}
 }
