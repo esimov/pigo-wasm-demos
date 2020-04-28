@@ -253,7 +253,6 @@ func (c *Canvas) pixelateDetectedRegion(data []uint8, dets []int) []uint8 {
 	// draw.Draw(dst, rect, face, sr.Min, draw.Src)
 
 	// cell := quant.Draw(dst, c.numOfColors, c.cellSize)
-	//fmt.Println(face.Bounds().Size())
 	return c.imgToPix(face)
 }
 
@@ -270,16 +269,19 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 				c.ctx.Call("moveTo", row+int(scale/2), col)
 				c.ctx.Call("arc", row, col, scale/2, 0, 2*math.Pi, true)
 			} else {
-				rect := image.Rect(row-scale/2, col-scale/2, row+scale/2, col+scale/2).Size()
 				c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
+				rect := image.Rect(row-scale/2, col-scale/2, row+scale/2, col+scale/2).Size()
+				fmt.Println(rect.X * rect.Y * 4)
 
 				buffer := c.pixelateDetectedRegion(data, dets[i])
+				fmt.Println("buffer:", len(buffer))
 				uint8Arr := js.Global().Get("Uint8Array").New(rect.X * rect.Y * 4)
 				js.CopyBytesToJS(uint8Arr, buffer)
 
-				uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
-				imageData := js.Global().Get("ImageData").New(uint8Clamped, rect.X)
-				c.ctx.Call("putImageData", imageData, row-scale/2, col-scale/2)
+				fmt.Println("LEN:", uint8Arr.Get("length").Int())
+				uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr, rect.X)
+				imageData := js.Global().Get("ImageData").New(uint8Clamped, rect.X, rect.Y)
+				c.ctx.Call("putImageData", imageData, row-scale/2, col-scale/2, 0, 0, scale, scale)
 			}
 			c.ctx.Call("stroke")
 

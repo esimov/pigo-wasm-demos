@@ -41,6 +41,7 @@ func (quant *Quant) Draw(img image.Image, numOfColors int, csize int) image.Imag
 	ctx.SetRGB(1, 1, 1)
 	ctx.Clear()
 	ctx.SetRGB(0, 0, 0)
+	rgba := ctx.convertToNRGBA64(qimg)
 
 	for x := 0; x < dx; x += cellSize {
 		for y := 0; y < dy; y += cellSize {
@@ -49,8 +50,8 @@ func (quant *Quant) Draw(img image.Image, numOfColors int, csize int) image.Imag
 			if rect.Empty() {
 				rect = image.ZR
 			}
-			subImg := image.NewNRGBA64(qimg.Bounds()).SubImage(rect).(*image.NRGBA64)
-			cellColor := getAvgColor(subImg)
+			subImg := rgba.SubImage(rect).(*image.NRGBA64)
+			cellColor := ctx.getAvgColor(subImg)
 			ctx.drawCell(float64(x), float64(y), float64(cellSize), cellColor)
 		}
 	}
@@ -68,7 +69,7 @@ func (ctx *context) drawCell(x, y, cellSize float64, c color.NRGBA64) {
 }
 
 // getAvgColor get the average color of a cell
-func getAvgColor(img *image.NRGBA64) color.NRGBA64 {
+func (ctx *context) getAvgColor(img *image.NRGBA64) color.NRGBA64 {
 	var (
 		bounds  = img.Bounds()
 		r, g, b int
@@ -92,7 +93,7 @@ func getAvgColor(img *image.NRGBA64) color.NRGBA64 {
 }
 
 // convertToNRGBA64 converts an image.Image into an image.NRGBA64.
-func convertToNRGBA64(img image.Image) *image.NRGBA64 {
+func (ctx *context) convertToNRGBA64(img image.Image) *image.NRGBA64 {
 	var (
 		bounds = img.Bounds()
 		nrgba  = image.NewNRGBA64(bounds)
