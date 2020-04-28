@@ -76,7 +76,6 @@ func NewCanvas() *Canvas {
 	c.numOfColors = 32
 	c.cellSize = 10
 
-	c.frame = image.NewNRGBA(image.Rect(0, 0, c.windowSize.width, c.windowSize.height))
 	det = detector.NewDetector()
 	quant = Quant{}
 
@@ -201,7 +200,8 @@ func (c *Canvas) rgbaToGrayscale(data []uint8) []uint8 {
 }
 
 // pixToImage converts an array buffer to an image.
-func (c *Canvas) pixToImage(pixels []uint8) image.Image {
+func (c *Canvas) pixToImage(pixels []uint8, dim int) image.Image {
+	c.frame = image.NewNRGBA(image.Rect(0, 0, dim, dim))
 	bounds := c.frame.Bounds()
 	dx, dy := bounds.Max.X, bounds.Max.Y
 	col := color.NRGBA{
@@ -241,19 +241,12 @@ func (c *Canvas) imgToPix(img image.Image) []uint8 {
 // pixelateDetectedRegion pixelates the detected face region
 func (c *Canvas) pixelateDetectedRegion(data []uint8, dets []int) []uint8 {
 	// Converts the array buffer to an image
-	img := c.pixToImage(data)
-	row, col, scale := dets[1], dets[0], dets[2]
+	img := c.pixToImage(data, dets[2])
 
-	// Extract the detected face region into separate image
-	sr := image.Rect(row-scale/2, col-scale/2, row+scale/2, col+scale/2)
-	face := img.(SubImager).SubImage(sr)
-
-	// rect := image.Rectangle{image.Point{0, 0}, image.Point{0, 0}.Add(sr.Size())}
-	// dst := image.NewNRGBA(rect)
-	// draw.Draw(dst, rect, face, sr.Min, draw.Src)
-
-	// cell := quant.Draw(dst, c.numOfColors, c.cellSize)
-	return c.imgToPix(face)
+	// Quantize the substracted image in order to reduce the number of colors.
+	// This will results in a pixelated subtype image.
+	cell := quant.Draw(img, c.numOfColors, c.cellSize)
+	return c.imgToPix(cell)
 }
 
 // drawDetection draws the detected faces and eyes.
@@ -270,18 +263,22 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 				c.ctx.Call("arc", row, col, scale/2, 0, 2*math.Pi, true)
 			} else {
 				c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
-				rect := image.Rect(row-scale/2, col-scale/2, row+scale/2, col+scale/2).Size()
-				fmt.Println(rect.X * rect.Y * 4)
 
-				buffer := c.pixelateDetectedRegion(data, dets[i])
-				fmt.Println("buffer:", len(buffer))
-				uint8Arr := js.Global().Get("Uint8Array").New(rect.X * rect.Y * 4)
+				// Substract the image under the detected face region.
+				imgData := make([]byte, scale*scale*4)
+				subimg := c.ctx.Call("getImageData", row-scale/2, col-scale/2, scale, scale).Get("data")
+				uint8Arr := js.Global().Get("Uint8Array").New(subimg)
+				js.CopyBytesToGo(imgData, uint8Arr)
+
+				buffer := c.pixelateDetectedRegion(imgData, dets[i])
+				uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
 				js.CopyBytesToJS(uint8Arr, buffer)
 
-				fmt.Println("LEN:", uint8Arr.Get("length").Int())
-				uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr, rect.X)
-				imageData := js.Global().Get("ImageData").New(uint8Clamped, rect.X, rect.Y)
-				c.ctx.Call("putImageData", imageData, row-scale/2, col-scale/2, 0, 0, scale, scale)
+				uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
+				rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
+
+				// Replace the underlying face region byte array with the quantized values.
+				c.ctx.Call("putImageData", rawData, row-scale/2, col-scale/2)
 			}
 			c.ctx.Call("stroke")
 

@@ -13,7 +13,7 @@ type context struct {
 }
 
 // Brightness factor
-var bf = 1.0005
+var bf = 1.0
 
 // Draw creates uniform cells with the quantified cell color of the source image.
 func (quant *Quant) Draw(img image.Image, numOfColors int, csize int) image.Image {
