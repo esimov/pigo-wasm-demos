@@ -57,7 +57,7 @@ func (quant *Quant) Draw(img image.Image, numOfColors int, csize int, useNoise b
 	}
 	ctxImg := ctx.Image()
 	if useNoise {
-		return noise(ctxImg, dx, dy, 12)
+		return noise(ctxImg, dx, dy, 10)
 	}
 	return ctxImg
 }

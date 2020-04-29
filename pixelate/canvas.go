@@ -50,8 +50,10 @@ type SubImager interface {
 }
 
 const (
-	maxColors = 32
-	minColors = 2
+	minColors   = 2
+	maxColors   = 32
+	minCellSize = 8
+	maxCellSize = 30
 )
 
 var (
@@ -326,6 +328,14 @@ func (c *Canvas) detectKeyPress() {
 		case keyCode.String() == "-":
 			if c.numOfColors > minColors {
 				c.numOfColors--
+			}
+		case keyCode.String() == "]":
+			if c.cellSize <= maxCellSize {
+				c.cellSize++
+			}
+		case keyCode.String() == "[":
+			if c.cellSize > minCellSize {
+				c.cellSize--
 			}
 		default:
 			c.showFrame = false
