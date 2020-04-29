@@ -13,10 +13,10 @@ type context struct {
 }
 
 // Brightness factor
-var bf = 1.0
+var bf = 1.0005
 
 // Draw creates uniform cells with the quantified cell color of the source image.
-func (quant *Quant) Draw(img image.Image, numOfColors int, csize int) image.Image {
+func (quant *Quant) Draw(img image.Image, numOfColors int, csize int, useNoise bool) image.Image {
 	var cellSize int
 
 	dx, dy := img.Bounds().Dx(), img.Bounds().Dy()
@@ -56,9 +56,10 @@ func (quant *Quant) Draw(img image.Image, numOfColors int, csize int) image.Imag
 		}
 	}
 	ctxImg := ctx.Image()
-	noisyImg := noise(10, ctxImg, dx, dy)
-
-	return noisyImg
+	if useNoise {
+		return noise(ctxImg, dx, dy, 12)
+	}
+	return ctxImg
 }
 
 // drawCell draws the cell filling up with the quantified color

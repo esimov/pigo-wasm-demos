@@ -14,7 +14,7 @@ type prng struct {
 }
 
 // noise apply a noise factor to the source image
-func noise(amount int, pxl image.Image, w, h int) *image.NRGBA64 {
+func noise(pxl image.Image, w, h int, amount int) *image.NRGBA64 {
 	noiseImg := image.NewNRGBA64(image.Rect(0, 0, w, h))
 	prng := &prng{
 		a:    16807,

@@ -33,8 +33,9 @@ type Canvas struct {
 	video     js.Value
 
 	// Canvas interaction related variables
-	showPupil  bool
-	drawCircle bool
+	showPupil bool
+	showFrame bool
+	useNoise  bool
 
 	// Quantizer related variables
 	numOfColors int
@@ -47,6 +48,11 @@ type Canvas struct {
 type SubImager interface {
 	SubImage(r image.Rectangle) image.Image
 }
+
+const (
+	maxColors = 32
+	minColors = 2
+)
 
 var (
 	det   *detector.Detector
@@ -71,9 +77,10 @@ func NewCanvas() *Canvas {
 
 	c.ctx = c.canvas.Call("getContext", "2d")
 	c.showPupil = false
-	c.drawCircle = false
+	c.showFrame = false
+	c.useNoise = false
 
-	c.numOfColors = 32
+	c.numOfColors = 8
 	c.cellSize = 10
 
 	det = detector.NewDetector()
@@ -239,13 +246,13 @@ func (c *Canvas) imgToPix(img image.Image) []uint8 {
 }
 
 // pixelateDetectedRegion pixelates the detected face region
-func (c *Canvas) pixelateDetectedRegion(data []uint8, dets []int) []uint8 {
+func (c *Canvas) pixelateDetectedRegion(data []uint8, dets []int, useNoise bool) []uint8 {
 	// Converts the array buffer to an image
-	img := c.pixToImage(data, dets[2])
+	img := c.pixToImage(data, int(float64(dets[2])*0.75))
 
 	// Quantize the substracted image in order to reduce the number of colors.
 	// This will results in a pixelated subtype image.
-	cell := quant.Draw(img, c.numOfColors, c.cellSize)
+	cell := quant.Draw(img, c.numOfColors, c.cellSize, useNoise)
 	return c.imgToPix(cell)
 }
 
@@ -254,32 +261,31 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 	for i := 0; i < len(dets); i++ {
 		if dets[i][3] > 50 {
 			c.ctx.Call("beginPath")
-			c.ctx.Set("lineWidth", 3)
-			c.ctx.Set("strokeStyle", "red")
+			c.ctx.Set("lineWidth", 2)
+			c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
 
 			row, col, scale := dets[i][1], dets[i][0], dets[i][2]
-			if c.drawCircle {
-				c.ctx.Call("moveTo", row+int(scale/2), col)
-				c.ctx.Call("arc", row, col, scale/2, 0, 2*math.Pi, true)
-			} else {
+			col = col + int(float64(col)*0.125)
+			scale = int(float64(scale) * 0.75)
+
+			if c.showFrame {
 				c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
-
-				// Substract the image under the detected face region.
-				imgData := make([]byte, scale*scale*4)
-				subimg := c.ctx.Call("getImageData", row-scale/2, col-scale/2, scale, scale).Get("data")
-				uint8Arr := js.Global().Get("Uint8Array").New(subimg)
-				js.CopyBytesToGo(imgData, uint8Arr)
-
-				buffer := c.pixelateDetectedRegion(imgData, dets[i])
-				uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
-				js.CopyBytesToJS(uint8Arr, buffer)
-
-				uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
-				rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
-
-				// Replace the underlying face region byte array with the quantized values.
-				c.ctx.Call("putImageData", rawData, row-scale/2, col-scale/2)
 			}
+			// Substract the image under the detected face region.
+			imgData := make([]byte, scale*scale*4)
+			subimg := c.ctx.Call("getImageData", row-scale/2, col-scale/2, scale, scale).Get("data")
+			uint8Arr := js.Global().Get("Uint8Array").New(subimg)
+			js.CopyBytesToGo(imgData, uint8Arr)
+
+			buffer := c.pixelateDetectedRegion(imgData, dets[i], c.useNoise)
+			uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
+			js.CopyBytesToJS(uint8Arr, buffer)
+
+			uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
+			rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
+
+			// Replace the underlying face region byte array with the quantized values.
+			c.ctx.Call("putImageData", rawData, row-scale/2, col-scale/2)
 			c.ctx.Call("stroke")
 
 			if c.showPupil {
@@ -309,10 +315,20 @@ func (c *Canvas) detectKeyPress() {
 		switch {
 		case keyCode.String() == "s":
 			c.showPupil = !c.showPupil
-		case keyCode.String() == "c":
-			c.drawCircle = !c.drawCircle
+		case keyCode.String() == "f":
+			c.showFrame = !c.showFrame
+		case keyCode.String() == "n":
+			c.useNoise = !c.useNoise
+		case keyCode.String() == "=":
+			if c.numOfColors <= maxColors {
+				c.numOfColors++
+			}
+		case keyCode.String() == "-":
+			if c.numOfColors > minColors {
+				c.numOfColors--
+			}
 		default:
-			c.drawCircle = false
+			c.showFrame = false
 		}
 		return nil
 	})
