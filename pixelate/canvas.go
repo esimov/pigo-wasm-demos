@@ -267,7 +267,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 			c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
 
 			row, col, scale := dets[i][1], dets[i][0], dets[i][2]
-			col = col + int(float64(col)*0.125)
+			col = col + int(float64(col)*0.115)
 			scale = int(float64(scale) * 0.75)
 
 			if c.showFrame {
