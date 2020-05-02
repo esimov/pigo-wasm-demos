@@ -17,7 +17,7 @@ all: wasm serve
 demo1: masquerade serve
 demo2: pixelate serve
 demo3: faceblur serve
-demo4: t
+demo4: triangulate serve
 
 masquerade:
 	cp -f "$$(go env GOROOT)/misc/wasm/wasm_exec.js" ./js/
