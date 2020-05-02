@@ -17,6 +17,7 @@ all: wasm serve
 demo1: masquerade serve
 demo2: pixelate serve
 demo3: faceblur serve
+demo4: t
 
 masquerade:
 	cp -f "$$(go env GOROOT)/misc/wasm/wasm_exec.js" ./js/
@@ -29,6 +30,10 @@ pixelate:
 faceblur:
 	cp -f "$$(go env GOROOT)/misc/wasm/wasm_exec.js" ./js/
 	GOOS=js GOARCH=wasm go build -o lib.wasm faceblur.go
+
+triangulate:
+	cp -f "$$(go env GOROOT)/misc/wasm/wasm_exec.js" ./js/
+	GOOS=js GOARCH=wasm go build -o lib.wasm triangulate.go
 
 serve:
 	$(BROWSER) 'http://localhost:5000'
