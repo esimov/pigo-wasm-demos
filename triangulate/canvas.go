@@ -335,11 +335,11 @@ func (c *Canvas) detectKeyPress() {
 			if c.trianglePoints <= maxTrianglePoints {
 				c.trianglePoints += 20
 			}
-		case keyCode.String() == "1":
+		case keyCode.String() == "[":
 			if c.pointsThreshold > minPointsThreshold {
 				c.pointsThreshold -= 5
 			}
-		case keyCode.String() == "2":
+		case keyCode.String() == "]":
 			if c.pointsThreshold <= maxPointsThreshold {
 				c.pointsThreshold += 5
 			}
