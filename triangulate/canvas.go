@@ -327,20 +327,23 @@ func (c *Canvas) detectKeyPress() {
 			c.showFrame = !c.showFrame
 		case keyCode.String() == "g":
 			c.isGrayScaled = !c.isGrayScaled
-		case keyCode.String() == "=":
-			if c.trianglePoints <= maxTrianglePoints {
-				c.trianglePoints += 20
-			}
 		case keyCode.String() == "-":
 			if c.trianglePoints > minTrianglePoints {
 				c.trianglePoints -= 20
 			}
-		case keyCode.String() == "]":
-			c.wireframe = 1
-			if c.strokeWidth <= maxStrokeWidth {
-				c.strokeWidth++
+		case keyCode.String() == "=":
+			if c.trianglePoints <= maxTrianglePoints {
+				c.trianglePoints += 20
 			}
-		case keyCode.String() == "[":
+		case keyCode.String() == "1":
+			if c.pointsThreshold > minPointsThreshold {
+				c.pointsThreshold -= 5
+			}
+		case keyCode.String() == "2":
+			if c.pointsThreshold <= maxPointsThreshold {
+				c.pointsThreshold += 5
+			}
+		case keyCode.String() == "1":
 			if c.strokeWidth > minStrokeWidth {
 				c.strokeWidth--
 			}
@@ -348,12 +351,9 @@ func (c *Canvas) detectKeyPress() {
 				c.wireframe = 0
 			}
 		case keyCode.String() == "2":
-			if c.pointsThreshold <= maxPointsThreshold {
-				c.pointsThreshold += 5
-			}
-		case keyCode.String() == "1":
-			if c.pointsThreshold > minPointsThreshold {
-				c.pointsThreshold -= 5
+			c.wireframe = 1
+			if c.strokeWidth <= maxStrokeWidth {
+				c.strokeWidth++
 			}
 		default:
 			c.showFrame = false

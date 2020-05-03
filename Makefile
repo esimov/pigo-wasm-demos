@@ -12,28 +12,15 @@ endif
 
 .PHONY: all clean serve
 
-all: wasm serve
-
-demo1: masquerade serve
-demo2: pixelate serve
-demo3: faceblur serve
-demo4: triangulate serve
-
-masquerade:
+%.wasm: %.go
 	cp -f "$$(go env GOROOT)/misc/wasm/wasm_exec.js" ./js/
-	GOOS=js GOARCH=wasm go build -o lib.wasm masquerade.go
+	GOOS=js GOARCH=wasm go generate
+	GOOS=js GOARCH=wasm go build -o lib.wasm "$<"
 
-pixelate:
-	cp -f "$$(go env GOROOT)/misc/wasm/wasm_exec.js" ./js/
-	GOOS=js GOARCH=wasm go build -o lib.wasm pixelate.go
-
-faceblur:
-	cp -f "$$(go env GOROOT)/misc/wasm/wasm_exec.js" ./js/
-	GOOS=js GOARCH=wasm go build -o lib.wasm faceblur.go
-
-triangulate:
-	cp -f "$$(go env GOROOT)/misc/wasm/wasm_exec.js" ./js/
-	GOOS=js GOARCH=wasm go build -o lib.wasm triangulate.go
+demo1: masquerade.wasm serve
+demo2: faceblur.wasm serve
+demo3: pixelate.wasm serve
+demo4: triangulate.wasm serve
 
 serve:
 	$(BROWSER) 'http://localhost:5000'
