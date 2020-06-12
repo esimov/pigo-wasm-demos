@@ -21,6 +21,7 @@ demo1: masquerade.wasm serve
 demo2: faceblur.wasm serve
 demo3: pixelate.wasm serve
 demo4: triangulate.wasm serve
+demo5: polygonize.wasm serve
 
 serve:
 	$(BROWSER) 'http://localhost:5000'

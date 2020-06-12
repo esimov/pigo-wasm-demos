@@ -4,8 +4,32 @@ html, body {
 	padding: 0;
 }
 
-#canvas {
+#wrapper {
 	position: absolute;
+	width: 640px; height: 480px;
 	left: 50%; top: 50%;
+	transform: translate(-50%, -50%);
+}
+
+#canvas,
+#canvas2 {
+	position: absolute;
+	top: 0; left: 0;
+	width: 100%; height: 100%;
+}
+#canvas {
+	z-index: 99;
+}
+
+#snapshot {
+	display: none;
+	position: absolute;
+	width: 50px;
+	height: 50px;
+	border-radius: 50%;
+	background-color: green;
+	left: 50%;
+	bottom: 20%;
+	z-index: 99;
 	transform: translate(-50%, -50%);
 }

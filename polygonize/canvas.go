@@ -1,13 +1,20 @@
-package faceblur
+package polygonize
 
 import (
+	"encoding/base64"
 	"fmt"
 	"image"
 	"image/color"
+	"io/ioutil"
+	"log"
 	"math"
+	"net/http"
+	"net/url"
 	"syscall/js"
+	"time"
 
 	"github.com/esimov/pigo-wasm-demos/detector"
+	"github.com/esimov/triangle"
 )
 
 // Canvas struct holds the Javascript objects needed for the Canvas creation
@@ -17,37 +24,57 @@ type Canvas struct {
 	errCh  chan error
 
 	// DOM elements
-	window     js.Value
-	doc        js.Value
-	body       js.Value
-	windowSize struct{ width, height int }
+	window      js.Value
+	doc         js.Value
+	body        js.Value
+	snapshotBtn js.Value
+	windowSize  struct{ width, height int }
 
 	// Canvas properties
-	canvas   js.Value
-	ctx      js.Value
-	reqID    js.Value
-	renderer js.Func
+	webcamCanvas js.Value
+	maskCanvas   js.Value
+	ctx          js.Value
+	ctx2         js.Value
+	reqID        js.Value
+	renderer     js.Func
 
 	// Webcam properties
 	navigator js.Value
 	video     js.Value
 
+	// Delaunay triangulation related variables
+	triangle  *triangle.Image
+	processor *triangle.Processor
+	frame     *image.NRGBA
+
 	// Canvas interaction related variables
-	showPupil bool
-	showFrame bool
-	isBlured  bool
-
-	blurRadius uint32
-
-	frame *image.NRGBA
+	showFrame       bool
+	isSolid         bool
+	isGrayScaled    bool
+	wireframe       int
+	trianglePoints  int
+	pointsThreshold int
+	strokeWidth     float64
 }
 
 const (
-	minBlurRadius = 5
-	maxBlurRadius = 50
+	minTrianglePoints = 50
+	maxTrianglePoints = 800
+
+	minPointsThreshold = 2
+	maxPointsThreshold = 50
+
+	minStrokeWidth = 0
+	maxStrokeWidth = 4
 )
 
-var det *detector.Detector
+var (
+	det  *detector.Detector
+	mask js.Value
+
+	maskWidth  int
+	maskHeight int
+)
 
 // NewCanvas creates and initializes the new Canvas element
 func NewCanvas() *Canvas {
@@ -56,23 +83,57 @@ func NewCanvas() *Canvas {
 	c.doc = c.window.Get("document")
 	c.body = c.doc.Get("body")
 
-	c.windowSize.width = 1024
-	c.windowSize.height = 640
+	c.windowSize.width = 320
+	c.windowSize.height = 240
 
-	c.canvas = c.doc.Call("createElement", "canvas")
-	c.canvas.Set("width", c.windowSize.width)
-	c.canvas.Set("height", c.windowSize.height)
-	c.canvas.Set("id", "canvas")
-	c.body.Call("appendChild", c.canvas)
+	wrapper := c.doc.Call("createElement", "div")
+	wrapper.Set("id", "wrapper")
+	c.body.Call("appendChild", wrapper)
 
-	c.ctx = c.canvas.Call("getContext", "2d")
-	c.showPupil = false
+	c.webcamCanvas = c.doc.Call("createElement", "canvas")
+	c.webcamCanvas.Set("width", c.windowSize.width)
+	c.webcamCanvas.Set("height", c.windowSize.height)
+	c.webcamCanvas.Set("id", "canvas")
+
+	c.maskCanvas = c.doc.Call("createElement", "canvas")
+	c.maskCanvas.Set("width", c.windowSize.width)
+	c.maskCanvas.Set("height", c.windowSize.height)
+	c.maskCanvas.Set("id", "canvas2")
+
+	wrapper.Call("appendChild", c.webcamCanvas)
+	wrapper.Call("appendChild", c.maskCanvas)
+
+	c.snapshotBtn = c.doc.Call("createElement", "div")
+	c.snapshotBtn.Set("id", "snapshot")
+	c.body.Call("appendChild", c.snapshotBtn)
+
+	c.ctx = c.webcamCanvas.Call("getContext", "2d")
+	c.ctx2 = c.maskCanvas.Call("getContext", "2d")
+
 	c.showFrame = false
-	c.isBlured = true
+	c.isSolid = false
+	c.isGrayScaled = false
 
-	c.blurRadius = 20
+	c.wireframe = 0
+	c.strokeWidth = 0
+	c.trianglePoints = 200
+	c.pointsThreshold = 20
 
 	det = detector.NewDetector()
+
+	c.processor = &triangle.Processor{
+		BlurRadius:      4,
+		SobelThreshold:  10,
+		Noise:           0,
+		MaxPoints:       c.trianglePoints,
+		PointsThreshold: c.pointsThreshold,
+		Wireframe:       c.wireframe,
+		StrokeWidth:     c.strokeWidth,
+		IsSolid:         c.isSolid,
+		Grayscale:       c.isGrayScaled,
+		BackgroundColor: "#ffffff00",
+	}
+	c.triangle = &triangle.Image{*c.processor}
 	return &c
 }
 
@@ -80,6 +141,13 @@ func NewCanvas() *Canvas {
 func (c *Canvas) Render() error {
 	var data = make([]byte, c.windowSize.width*c.windowSize.height*4)
 	c.done = make(chan struct{})
+
+	img := c.loadImage("/images/surgical-mask.png")
+	mask = js.Global().Call("eval", "new Image()")
+	mask.Set("src", "data:image/png;base64,"+img)
+
+	maskWidth = js.ValueOf(mask.Get("naturalWidth")).Int()
+	maskHeight = js.ValueOf(mask.Get("naturalHeight")).Int()
 
 	err := det.UnpackCascades()
 	if err != nil {
@@ -93,6 +161,7 @@ func (c *Canvas) Render() error {
 			c.reqID = c.window.Call("requestAnimationFrame", c.renderer)
 			// Draw the webcam frame to the canvas element
 			c.ctx.Call("drawImage", c.video, 0, 0)
+			c.ctx2.Call("drawImage", c.video, 0, 0)
 			rgba := c.ctx.Call("getImageData", 0, 0, width, height).Get("data")
 
 			// Convert the rgba value of type Uint8ClampedArray to Uint8Array in order to
@@ -225,24 +294,37 @@ func (c *Canvas) imgToPix(img image.Image) []uint8 {
 
 	for i := bounds.Min.X; i < bounds.Max.X; i++ {
 		for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
-			r, g, b, _ := img.At(i, j).RGBA()
-			pixels = append(pixels, uint8(r>>8), uint8(g>>8), uint8(b>>8), 255)
+			r, g, b, a := img.At(i, j).RGBA()
+			pixels = append(pixels, uint8(r>>8), uint8(g>>8), uint8(b>>8), uint8(a>>8))
 		}
 	}
 	return pixels
 }
 
 // pixelateDetectedRegion pixelates the detected face region
-func (c *Canvas) blurDetectedRegion(data []uint8, dets []int) []uint8 {
+func (c *Canvas) triangulateDetectedRegion(data []uint8, dets []int) []uint8 {
 	// Converts the array buffer to an image
-	img := c.pixToImage(data, int(float64(dets[2])*0.8))
+	img := c.pixToImage(data, int(float64(dets[2])))
 
-	blured := Blur(img, c.blurRadius)
-	return c.imgToPix(blured)
+	res, _, _, err := c.triangle.Draw(img, nil, func() {})
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	return c.imgToPix(res)
 }
 
 // drawDetection draws the detected faces and eyes.
 func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
+	c.processor.MaxPoints = c.trianglePoints
+	c.processor.Grayscale = c.isGrayScaled
+	c.processor.StrokeWidth = c.strokeWidth
+	c.processor.PointsThreshold = c.pointsThreshold
+	c.processor.Wireframe = c.wireframe
+
+	c.triangle = &triangle.Image{*c.processor}
+
+	var imgScale float64
+
 	for i := 0; i < len(dets); i++ {
 		if dets[i][3] > 50 {
 			c.ctx.Call("beginPath")
@@ -250,46 +332,65 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 			c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
 
 			row, col, scale := dets[i][1], dets[i][0], dets[i][2]
-			col = col + int(float64(col)*0.1)
-			scale = int(float64(scale) * 0.8)
+			row = row + int(float64(row)*0.02)
+			col = col + int(float64(col)*0.2)
 
-			if c.isBlured {
+			leftPupil := det.DetectLeftPupil(dets[i])
+			rightPupil := det.DetectRightPupil(dets[i])
+
+			if leftPupil != nil && rightPupil != nil {
+				points := det.DetectMouthPoints(leftPupil, rightPupil)
+				p1, p2 := points[0], points[1]
+
+				// Calculate the lean angle between the two mouth points.
+				angle := 1 - (math.Atan2(float64(p2[0]-p1[0]), float64(p2[1]-p1[1])) * 180 / math.Pi / 90)
+				if math.Abs(angle) > 0.1 {
+					c.snapshotBtn.Set("style", "display:none")
+				} else {
+					c.snapshotBtn.Set("style", "display:block")
+				}
+
+				if scale < maskWidth || scale < maskHeight {
+					if maskHeight > maskWidth {
+						imgScale = float64(scale) / float64(maskHeight)
+					} else {
+						imgScale = float64(scale) / float64(maskWidth)
+					}
+				}
+				width, height := float64(maskWidth)*imgScale*0.75, float64(maskHeight)*imgScale*0.75
+				tx := row - int(width/2)
+				ty := p1[1] + (p1[1]-p2[1])/2 - int(height*0.5)
+
+				c.ctx.Call("save")
+				c.ctx.Call("translate", js.ValueOf(tx).Int(), js.ValueOf(ty).Int())
+				c.ctx.Call("rotate", js.ValueOf(angle).Float())
+
+				c.ctx.Set("globalCompositeOperation", "destination-atop")
+				c.ctx.Call("drawImage", mask,
+					js.ValueOf(0).Int(), js.ValueOf(0).Int(),
+					js.ValueOf(width).Int(), js.ValueOf(height).Int(),
+				)
+
 				// Substract the image under the detected face region.
 				imgData := make([]byte, scale*scale*4)
 				subimg := c.ctx.Call("getImageData", row-scale/2, col-scale/2, scale, scale).Get("data")
 				uint8Arr := js.Global().Get("Uint8Array").New(subimg)
 				js.CopyBytesToGo(imgData, uint8Arr)
 
-				buffer := c.blurDetectedRegion(imgData, dets[i])
+				buffer := c.triangulateDetectedRegion(imgData, dets[i])
 				uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
 				js.CopyBytesToJS(uint8Arr, buffer)
 
 				uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
 				rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
 
-				// Replace the underlying face region with the blured image.
+				// Replace the underlying face region with the triangulated image.
 				c.ctx.Call("putImageData", rawData, row-scale/2, col-scale/2)
+				c.ctx.Call("restore")
 			}
 
 			if c.showFrame {
 				c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
-				c.ctx.Call("stroke")
-			}
-
-			if c.showPupil {
-				leftPupil := det.DetectLeftPupil(dets[i])
-				if leftPupil != nil {
-					col, row, scale := leftPupil.Col, leftPupil.Row, leftPupil.Scale/8
-					c.ctx.Call("moveTo", col+int(scale), row)
-					c.ctx.Call("arc", col, row, scale, 0, 2*math.Pi, true)
-				}
-
-				rightPupil := det.DetectRightPupil(dets[i])
-				if rightPupil != nil {
-					col, row, scale := rightPupil.Col, rightPupil.Row, rightPupil.Scale/8
-					c.ctx.Call("moveTo", col+int(scale), row)
-					c.ctx.Call("arc", col, row, scale, 0, 2*math.Pi, true)
-				}
 				c.ctx.Call("stroke")
 			}
 		}
@@ -301,19 +402,37 @@ func (c *Canvas) detectKeyPress() {
 	keyEventHandler := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		keyCode := args[0].Get("key")
 		switch {
-		case keyCode.String() == "s":
-			c.showPupil = !c.showPupil
 		case keyCode.String() == "f":
 			c.showFrame = !c.showFrame
-		case keyCode.String() == "b":
-			c.isBlured = !c.isBlured
-		case keyCode.String() == "]":
-			if c.blurRadius <= maxBlurRadius {
-				c.blurRadius++
+		case keyCode.String() == "g":
+			c.isGrayScaled = !c.isGrayScaled
+		case keyCode.String() == "-":
+			if c.trianglePoints > minTrianglePoints {
+				c.trianglePoints -= 20
+			}
+		case keyCode.String() == "=":
+			if c.trianglePoints <= maxTrianglePoints {
+				c.trianglePoints += 20
 			}
 		case keyCode.String() == "[":
-			if c.blurRadius > minBlurRadius {
-				c.blurRadius--
+			if c.pointsThreshold > minPointsThreshold {
+				c.pointsThreshold -= 5
+			}
+		case keyCode.String() == "]":
+			if c.pointsThreshold <= maxPointsThreshold {
+				c.pointsThreshold += 5
+			}
+		case keyCode.String() == "1":
+			if c.strokeWidth > minStrokeWidth {
+				c.strokeWidth--
+			}
+			if c.strokeWidth == minStrokeWidth {
+				c.wireframe = 0
+			}
+		case keyCode.String() == "2":
+			c.wireframe = 1
+			if c.strokeWidth <= maxStrokeWidth {
+				c.strokeWidth++
 			}
 		default:
 			c.showFrame = false
@@ -332,4 +451,27 @@ func (c *Canvas) Log(args ...interface{}) {
 func (c *Canvas) Alert(args ...interface{}) {
 	alert := c.window.Get("alert")
 	alert.Invoke(args...)
+}
+
+// loadImage load the source image and encodes it to base64 format.
+func (c *Canvas) loadImage(path string) string {
+	href := js.Global().Get("location").Get("href")
+	u, err := url.Parse(href.String())
+	if err != nil {
+		log.Fatal(err)
+	}
+	u.Path = path
+	u.RawQuery = fmt.Sprint(time.Now().UnixNano())
+
+	log.Println("loading image file: " + u.String())
+	resp, err := http.Get(u.String())
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(b)
 }
