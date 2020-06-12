@@ -83,8 +83,8 @@ func NewCanvas() *Canvas {
 	c.doc = c.window.Get("document")
 	c.body = c.doc.Get("body")
 
-	c.windowSize.width = 320
-	c.windowSize.height = 240
+	c.windowSize.width = 640
+	c.windowSize.height = 480
 
 	wrapper := c.doc.Call("createElement", "div")
 	wrapper.Set("id", "wrapper")

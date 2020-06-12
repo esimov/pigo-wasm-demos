@@ -161,10 +161,10 @@ func (d *Detector) clusterDetection(pixels []uint8, width, height int) []pigo.De
 		Dim:    height,
 	}
 	cParams := pigo.CascadeParams{
-		MinSize:     100,
+		MinSize:     200,
 		MaxSize:     720,
 		ShiftFactor: 0.1,
-		ScaleFactor: 1.02,
+		ScaleFactor: 1.1,
 		ImageParams: *imgParams,
 	}
 
