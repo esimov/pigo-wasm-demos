@@ -52,12 +52,12 @@ var (
 	eyemasks   = make([]js.Value, 6)
 	mouthmasks = make([]js.Value, 2)
 	sunglasses = []string{
-		"/images/neon-green.png",
-		"/images/neon-yellow.png",
-		"/images/sunglasses.png",
+		"/images/sunglass-yellow.png",
+		"/images/sunglass-red.png",
+		"/images/sunglass-green.png",
+		"/images/sunglass-disco.png",
 		"/images/carnival.png",
 		"/images/carnival2.png",
-		"/images/neon-disco.png",
 	}
 	masks = []string{
 		"/images/surgical-mask.png",
@@ -344,46 +344,44 @@ func (c *Canvas) detectKeyPress() {
 		switch {
 		case keyCode.String() == "q":
 			c.showFace = !c.showFace
-		case keyCode.String() == "e":
+		case keyCode.String() == "z":
 			c.showPupil = !c.showPupil
 		case keyCode.String() == "a":
 			c.drawCircle = !c.drawCircle
-		case keyCode.String() == "r":
+		case keyCode.String() == "w":
 			c.showEyeMask = !c.showEyeMask
 		case keyCode.String() == "x":
 			c.showCoord = !c.showCoord
-		case keyCode.String() == "f":
+		case keyCode.String() == "s":
 			c.showMouthMask = !c.showMouthMask
-		case keyCode.String() == "w":
+		case keyCode.String() == "e":
 			eyeMaskIdx++
 			if eyeMaskIdx > len(eyemasks)-1 {
 				eyeMaskIdx = 0
 			}
 			eyeMaskWidth = js.ValueOf(eyemasks[eyeMaskIdx].Get("naturalWidth")).Int()
 			eyeMaskHeight = js.ValueOf(eyemasks[eyeMaskIdx].Get("naturalHeight")).Int()
-		case keyCode.String() == "s":
+		case keyCode.String() == "d":
 			eyeMaskIdx--
 			if eyeMaskIdx < 0 {
 				eyeMaskIdx = len(eyemasks) - 1
 			}
 			eyeMaskWidth = js.ValueOf(eyemasks[eyeMaskIdx].Get("naturalWidth")).Int()
 			eyeMaskHeight = js.ValueOf(eyemasks[eyeMaskIdx].Get("naturalHeight")).Int()
-		case keyCode.String() == "z":
+		case keyCode.String() == "r":
 			mouthMaskIdx++
 			if mouthMaskIdx > len(mouthmasks)-1 {
 				mouthMaskIdx = 0
 			}
 			mouthMaskWidth = js.ValueOf(mouthmasks[mouthMaskIdx].Get("naturalWidth")).Int()
 			mouthMaskHeight = js.ValueOf(mouthmasks[mouthMaskIdx].Get("naturalHeight")).Int()
-		case keyCode.String() == "x":
+		case keyCode.String() == "f":
 			mouthMaskIdx--
 			if mouthMaskIdx < 0 {
 				mouthMaskIdx = len(mouthmasks) - 1
 			}
 			mouthMaskWidth = js.ValueOf(mouthmasks[mouthMaskIdx].Get("naturalWidth")).Int()
 			mouthMaskHeight = js.ValueOf(mouthmasks[mouthMaskIdx].Get("naturalHeight")).Int()
-		default:
-			c.drawCircle = false
 		}
 		return nil
 	})

@@ -10,8 +10,11 @@ html, body {
 	transform: translate(-50%, -50%);
 }
 
-#canvas {
-	z-index: 99;
+#wrapper {
+	position: absolute;
+	width: 640px; height: 480px;
+	left: 50%; top: 50%;
+	transform: translate(-50%, -50%);
 }
 
 #snapshot {

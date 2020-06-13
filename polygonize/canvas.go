@@ -357,7 +357,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 						imgScale = float64(scale) / float64(maskWidth)
 					}
 				}
-				width, height := float64(maskWidth)*imgScale*0.75, float64(maskHeight)*imgScale*0.75
+				width, height := float64(maskWidth)*imgScale*0.7, float64(maskHeight)*imgScale*0.7
 				tx := row - int(width/2)
 				ty := p1[1] + (p1[1]-p2[1])/2 - int(height*0.5)
 
