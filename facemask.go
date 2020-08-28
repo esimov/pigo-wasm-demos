@@ -4,10 +4,12 @@ package main
 
 import (
 	"fmt"
+
+	"github.com/esimov/pigo-wasm-demos/facemask"
 )
 
 func main() {
-	c := polygonize.NewCanvas()
+	c := facemask.NewCanvas()
 	webcam, err := c.StartWebcam()
 	if err != nil {
 		c.Alert("Webcam not detected!")
