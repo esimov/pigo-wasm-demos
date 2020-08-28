@@ -1,4 +1,4 @@
-package polygonize
+package facemask
 
 import (
 	"encoding/base64"

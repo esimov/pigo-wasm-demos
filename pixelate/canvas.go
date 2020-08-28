@@ -247,8 +247,8 @@ func (c *Canvas) imgToPix(img image.Image) []uint8 {
 	return pixels
 }
 
-// pixelateDetectedRegion pixelates the detected face region
-func (c *Canvas) pixelateDetectedRegion(data []uint8, dets []int, useNoise bool) []uint8 {
+// pixelate pixelates the detected face region
+func (c *Canvas) pixelate(data []uint8, dets []int, useNoise bool) []uint8 {
 	// Converts the array buffer to an image
 	img := c.pixToImage(data, int(float64(dets[2])*0.75))
 
@@ -279,7 +279,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 			uint8Arr := js.Global().Get("Uint8Array").New(subimg)
 			js.CopyBytesToGo(imgData, uint8Arr)
 
-			buffer := c.pixelateDetectedRegion(imgData, dets[i], c.useNoise)
+			buffer := c.pixelate(imgData, dets[i], c.useNoise)
 			uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
 			js.CopyBytesToJS(uint8Arr, buffer)
 

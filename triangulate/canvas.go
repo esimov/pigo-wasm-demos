@@ -262,11 +262,10 @@ func (c *Canvas) imgToPix(img image.Image) []uint8 {
 	return pixels
 }
 
-// pixelateDetectedRegion pixelates the detected face region
-func (c *Canvas) triangulateDetectedRegion(data []uint8, dets []int) []uint8 {
+// triangulate triangulates the detected face region
+func (c *Canvas) triangulate(data []uint8, dets []int) []uint8 {
 	// Converts the array buffer to an image
 	img := c.pixToImage(data, int(float64(dets[2])*0.85))
-
 	res, _, _, err := c.triangle.Draw(img, nil, func() {})
 	if err != nil {
 		log.Fatal(err.Error())
@@ -300,7 +299,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 			uint8Arr := js.Global().Get("Uint8Array").New(subimg)
 			js.CopyBytesToGo(imgData, uint8Arr)
 
-			buffer := c.triangulateDetectedRegion(imgData, dets[i])
+			buffer := c.triangulate(imgData, dets[i])
 			uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
 			js.CopyBytesToJS(uint8Arr, buffer)
 

@@ -4,8 +4,6 @@ package main
 
 import (
 	"fmt"
-
-	"github.com/esimov/pigo-wasm-demos/polygonize"
 )
 
 func main() {
