@@ -25,7 +25,7 @@ demo5: facemask.wasm serve
 
 serve:
 	$(BROWSER) 'http://localhost:5000'
-	serve
+	go run server/init.go
 
 clean:
 	rm -f *.wasm
