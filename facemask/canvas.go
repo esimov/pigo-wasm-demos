@@ -463,7 +463,6 @@ func (c *Canvas) loadImage(path string) string {
 	u.Path = path
 	u.RawQuery = fmt.Sprint(time.Now().UnixNano())
 
-	log.Println("loading image file: " + u.String())
 	resp, err := http.Get(u.String())
 	if err != nil {
 		log.Fatal(err)
