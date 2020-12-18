@@ -1,5 +1,8 @@
 # pigo-wasm-demos
 
+[![CI](https://github.com/esimov/pigo-wasm-demos/workflows/CI/badge.svg)](https://github.com/esimov/pigo-wasm-demos/actions)
+[![License](https://img.shields.io/github/license/esimov/pigo-wasm-demos)](https://github.com/esimov/pigo-wasm-demos/blob/master/LICENSE)
+
 <p align="center"><img src="https://user-images.githubusercontent.com/883386/80915158-06911a80-8d59-11ea-93bd-eca98750ad62.png" alt="Pigo Wasm demos" title="Pigo Wasm demos" width="400"/></p>
 
 This repository is a collection of real time Webassembly demos based on the [Pigo](https://github.com/esimov/pigo) face detection library, showing various use cases the library can be used for. **It is continuously updated**.
