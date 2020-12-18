@@ -35,6 +35,11 @@ jobs:
       - name: Download Go modules
         run: go mod download
 
+      - name: Install Linux Dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get install -y xdg-utils
+
       - name: Run Makefile
         id: makefile
         run: |
