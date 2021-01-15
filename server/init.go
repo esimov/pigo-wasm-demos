@@ -6,40 +6,42 @@ import (
 	"path/filepath"
 )
 
-// httpParams stores the http connection parameters
-type httpParams struct {
-	address string
-	prefix  string
-	root    string
+// httpConn web server connection parameters
+type httpConn struct {
+	address    string
+	port       string
+	root       string
+	cascadeDir string
 }
 
 func main() {
-	httpConn := &httpParams{
-		address: "localhost:5000",
-		prefix:  "/",
-		root:    ".",
+	httpConn := &httpConn{
+		address:    "localhost",
+		port:       "5000",
+		root:       "./",
+		cascadeDir: "./cascade/",
 	}
 	initServer(httpConn)
 }
 
 // initServer initializes the webserver
-func initServer(p *httpParams) {
+func initServer(c *httpConn) {
 	var err error
-	p.root, err = filepath.Abs(p.root)
+	c.root, err = filepath.Abs(c.root)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	log.Printf("serving %s as %s on %s", p.root, p.prefix, p.address)
-	http.Handle(p.prefix, http.StripPrefix(p.prefix, http.FileServer(http.Dir(p.root))))
+	log.Printf("serving %s on %s:%s", c.root, c.address, c.port)
+	http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir(c.root))))
+	http.Handle("/cascade/", http.StripPrefix("/cascade/", http.FileServer(http.Dir(c.cascadeDir))))
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Print(r.RemoteAddr + " " + r.Method + " " + r.URL.String())
 		http.DefaultServeMux.ServeHTTP(w, r)
 	})
-
 	httpServer := http.Server{
-		Addr:    p.address,
+		Addr:    c.address + ":" + c.port,
 		Handler: handler,
 	}
 	err = httpServer.ListenAndServe()
