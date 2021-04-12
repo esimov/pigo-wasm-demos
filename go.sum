@@ -1,8 +1,8 @@
 github.com/disintegration/imaging v1.6.1/go.mod h1:xuIt+sRxDFrHS0drzXUlCJthkJ8k7lkkUojDSR247MQ=
 github.com/esimov/pigo v1.4.3 h1:xl098Z9CHmouywvyRZepuKx8aSWHBs/0lZtp7Yt5g28=
 github.com/esimov/pigo v1.4.3/go.mod h1:aOTYpOWsqniACzXKdSOGkqI6CnWQpP8tFjgtUOARoEs=
-github.com/esimov/triangle v1.1.1 h1:/9wI/bEfiNCHzgYkybtXHkT93Vipb9WHhqvqJklW6bs=
-github.com/esimov/triangle v1.1.1/go.mod h1:9ERDTfRx/FXTfQbWVXwznmCF+6BhvfbaWVBv/NvRrrA=
+github.com/esimov/triangle v1.1.2 h1:Dvgx93oH8dPU1rd6vH1zBBQWAJwMWwWDiPvwtzWDviA=
+github.com/esimov/triangle v1.1.2/go.mod h1:9ERDTfRx/FXTfQbWVXwznmCF+6BhvfbaWVBv/NvRrrA=
 github.com/fogleman/gg v1.0.0/go.mod h1:R/bRT+9gY/C5z7JzPU0zXsXHKM4/ayA+zqcVNZzPa1k=
 github.com/fogleman/gg v1.3.0 h1:/7zJX8F6AaYQc57WQCyN9cAIz+4bCJGO9B+dyW29am8=
 github.com/fogleman/gg v1.3.0/go.mod h1:R/bRT+9gY/C5z7JzPU0zXsXHKM4/ayA+zqcVNZzPa1k=
