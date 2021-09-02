@@ -37,7 +37,7 @@ type Canvas struct {
 	video     js.Value
 
 	showPupil     bool
-	showFace      bool
+	showFaceRect  bool
 	showEyeMask   bool
 	showMouthMask bool
 	showCoord     bool
@@ -91,9 +91,9 @@ func NewCanvas() *Canvas {
 
 	c.ctx = c.canvas.Call("getContext", "2d")
 	c.showPupil = true
-	c.showFace = false
+	c.showFaceRect = false
 	c.showEyeMask = true
-	c.showMouthMask = false
+	c.showMouthMask = true
 	c.drawCircle = false
 
 	det = detector.NewDetector()
@@ -250,7 +250,7 @@ func (c *Canvas) drawDetection(dets [][]int) {
 			c.ctx.Set("lineWidth", 3)
 			c.ctx.Set("strokeStyle", "red")
 
-			if c.showFace {
+			if c.showFaceRect {
 				if c.drawCircle {
 					c.ctx.Call("moveTo", row+int(scale/2), col)
 					c.ctx.Call("arc", row, col, scale/2, 0, 2*math.Pi, true)
@@ -352,7 +352,7 @@ func (c *Canvas) detectKeyPress() {
 		keyCode := args[0].Get("key")
 		switch {
 		case keyCode.String() == "q":
-			c.showFace = !c.showFace
+			c.showFaceRect = !c.showFaceRect
 		case keyCode.String() == "z":
 			c.showPupil = !c.showPupil
 		case keyCode.String() == "a":
