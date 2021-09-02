@@ -129,9 +129,9 @@ func NewCanvas() *Canvas {
 		PointsThreshold: c.pointsThreshold,
 		Wireframe:       c.wireframe,
 		StrokeWidth:     c.strokeWidth,
-		IsSolid:         c.isSolid,
+		IsStrokeSolid:   c.isSolid,
 		Grayscale:       c.isGrayScaled,
-		BackgroundColor: "#ffffff00",
+		BgColor:         "#ffffff00",
 	}
 	c.triangle = &triangle.Image{*c.processor}
 	return &c
