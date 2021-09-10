@@ -27,7 +27,7 @@ $ make demo1
 
 
 #### Key bindings:
-<kbd>q</kbd> - Show/hide face marker<br/>
+<kbd>q</kbd> - Show/hide detected face marker<br/>
 <kbd>z</kbd> - Show/hide pupils<br/>
 <kbd>w</kbd> - Show/hide eye mask<br/>
 <kbd>s</kbd> - Show/hide mouth mask<br/>
@@ -45,7 +45,7 @@ $ make demo2
 
 
 #### Key bindings:
-<kbd>f</kbd> - Show/hide face marker<br/>
+<kbd>f</kbd> - Show/hide detected face marker<br/>
 <kbd>s</kbd> - Show/hide pupils<br/>
 <kbd>b</kbd> - Enable/disable face blur<br/>
 <kbd>]</kbd> - Increase the blur radius<br/>
@@ -58,7 +58,7 @@ $ make demo3
 ![pigo_wasm_pixelate](https://user-images.githubusercontent.com/883386/82049123-80f95d00-96be-11ea-801d-6e5a50d36114.gif)
 
 #### Key bindings:
-<kbd>f</kbd> - Show/hide face marker<br/>
+<kbd>f</kbd> - Show/hide detected face marker<br/>
 <kbd>s</kbd> - Show/hide pupils<br/>
 <kbd>=</kbd> - Increase the number of colors<br/>
 <kbd>-</kbd> - Decrease the number of colors<br/>
@@ -72,7 +72,25 @@ $ make demo4
 ![pigo_wasm_triangulate](https://user-images.githubusercontent.com/883386/82050510-ebab9800-96c0-11ea-84fb-00475076d33f.gif)
 
 #### Key bindings:
-<kbd>f</kbd> - Show/hide face marker<br/>
+<kbd>f</kbd> - Show/hide detected face marker<br/>
+<kbd>s</kbd> - Show/hide pupils<br/>
+<kbd>=</kbd> - Increase the number of triangles<br/>
+<kbd>-</kbd> - Decrease the number of triangles<br/>
+<kbd>]</kbd> - Increase the threshold<br/>
+<kbd>[</kbd> - Decrease the threshold<br/>
+<kbd>1</kbd> - Increase the stroke size<br/>
+<kbd>0</kbd> - Decrease the stroke size<br/>
+
+### Triangulated facemask
+```bash
+$ make demo5
+```
+![facemask](https://user-images.githubusercontent.com/883386/132861943-5f130ec2-dae2-4034-9abd-4c9de0de066c.gif)
+
+This demo is meant to be an example for an idea of generating personalized triangulated face masks. The orange dot is getting visible when the head alignment is most appropriate for making a screen capture and this is when the head is aligned perpendicular. This demo can be expanded way further.
+
+#### Key bindings:
+<kbd>f</kbd> - Show/hide detected face marker<br/>
 <kbd>s</kbd> - Show/hide pupils<br/>
 <kbd>=</kbd> - Increase the number of triangles<br/>
 <kbd>-</kbd> - Decrease the number of triangles<br/>
