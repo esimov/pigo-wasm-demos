@@ -83,7 +83,7 @@ func NewCanvas() *Canvas {
 	c.isSolid = false
 	c.isGrayScaled = false
 
-	c.wireframe = 0
+	c.wireframe = triangle.WithoutWireframe
 	c.strokeWidth = 0
 	c.trianglePoints = 150
 	c.pointsThreshold = 20
@@ -108,7 +108,8 @@ func NewCanvas() *Canvas {
 
 // Render calls the `requestAnimationFrame` Javascript function in asynchronous mode.
 func (c *Canvas) Render() error {
-	var data = make([]byte, c.windowSize.width*c.windowSize.height*4)
+	width, height := c.windowSize.width, c.windowSize.height
+	var data = make([]byte, width*height*4)
 	c.done = make(chan struct{})
 
 	err := det.UnpackCascades()
@@ -119,7 +120,6 @@ func (c *Canvas) Render() error {
 		go func() {
 			c.window.Get("stats").Call("begin")
 
-			width, height := c.windowSize.width, c.windowSize.height
 			c.reqID = c.window.Call("requestAnimationFrame", c.renderer)
 			// Draw the webcam frame to the canvas element
 			c.ctx.Call("drawImage", c.video, 0, 0)
@@ -130,13 +130,22 @@ func (c *Canvas) Render() error {
 			uint8Arr := js.Global().Get("Uint8Array").New(rgba)
 			js.CopyBytesToGo(data, uint8Arr)
 			gray := c.rgbaToGrayscale(data)
+
+			// Reset the data slice to its default values to avoid unnecessary memory allocation.
+			// Otherwise, the GC won't clean up the memory address allocated by this slice
+			// and the memory will keep up increasing by each iteration.
+			data = make([]byte, len(data))
+
 			res := det.DetectFaces(gray, height, width)
-			c.drawDetection(data, res)
+			c.drawDetection(res)
 
 			c.window.Get("stats").Call("end")
 		}()
 		return nil
 	})
+	// Release renderer to free up resources.
+	defer c.renderer.Release()
+
 	c.window.Call("requestAnimationFrame", c.renderer)
 	c.detectKeyPress()
 	<-c.done
@@ -274,7 +283,7 @@ func (c *Canvas) triangulate(data []uint8, dets []int) []uint8 {
 }
 
 // drawDetection draws the detected faces and eyes.
-func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
+func (c *Canvas) drawDetection(dets [][]int) {
 	c.processor.MaxPoints = c.trianglePoints
 	c.processor.Grayscale = c.isGrayScaled
 	c.processor.StrokeWidth = c.strokeWidth
@@ -299,6 +308,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 			uint8Arr := js.Global().Get("Uint8Array").New(subimg)
 			js.CopyBytesToGo(imgData, uint8Arr)
 
+			// Triangulate the detected face region.
 			buffer := c.triangulate(imgData, dets[i])
 			uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
 			js.CopyBytesToJS(uint8Arr, buffer)
@@ -347,15 +357,13 @@ func (c *Canvas) detectKeyPress() {
 				c.strokeWidth--
 			}
 			if c.strokeWidth == minStrokeWidth {
-				c.wireframe = 0
+				c.wireframe = triangle.WithoutWireframe
 			}
 		case keyCode.String() == "2":
-			c.wireframe = 1
+			c.wireframe = triangle.WithWireframe
 			if c.strokeWidth <= maxStrokeWidth {
 				c.strokeWidth++
 			}
-		default:
-			c.showFrame = false
 		}
 		return nil
 	})

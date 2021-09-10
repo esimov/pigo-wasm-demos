@@ -93,7 +93,8 @@ func NewCanvas() *Canvas {
 
 // Render calls the `requestAnimationFrame` Javascript function in asynchronous mode.
 func (c *Canvas) Render() error {
-	var data = make([]byte, c.windowSize.width*c.windowSize.height*4)
+	width, height := c.windowSize.width, c.windowSize.height
+	var data = make([]byte, width*height*4)
 	c.done = make(chan struct{})
 
 	err := det.UnpackCascades()
@@ -104,7 +105,6 @@ func (c *Canvas) Render() error {
 		go func() {
 			c.window.Get("stats").Call("begin")
 
-			width, height := c.windowSize.width, c.windowSize.height
 			c.reqID = c.window.Call("requestAnimationFrame", c.renderer)
 			// Draw the webcam frame to the canvas element
 			c.ctx.Call("drawImage", c.video, 0, 0)
@@ -115,6 +115,12 @@ func (c *Canvas) Render() error {
 			uint8Arr := js.Global().Get("Uint8Array").New(rgba)
 			js.CopyBytesToGo(data, uint8Arr)
 			gray := c.rgbaToGrayscale(data)
+
+			// Reset the data slice to its default values to avoid unnecessary memory allocation.
+			// Otherwise, the GC won't clean up the memory address allocated by this slice
+			// and the memory will keep up increasing by each iteration.
+			data = make([]byte, len(data))
+
 			res := det.DetectFaces(gray, height, width)
 			c.drawDetection(data, res)
 
@@ -122,6 +128,9 @@ func (c *Canvas) Render() error {
 		}()
 		return nil
 	})
+	// Release renderer to free up resources.
+	defer c.renderer.Release()
+
 	c.window.Call("requestAnimationFrame", c.renderer)
 	c.detectKeyPress()
 	<-c.done
@@ -250,7 +259,7 @@ func (c *Canvas) imgToPix(img image.Image) []uint8 {
 // pixelate pixelates the detected face region
 func (c *Canvas) pixelate(data []uint8, dets []int, useNoise bool) []uint8 {
 	// Converts the array buffer to an image
-	img := c.pixToImage(data, int(float64(dets[2])*0.75))
+	img := c.pixToImage(data, int(float64(dets[2])*0.8))
 
 	// Quantize the substracted image in order to reduce the number of colors.
 	// This will results in a pixelated subtype image.
@@ -267,8 +276,8 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 			c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
 
 			row, col, scale := dets[i][1], dets[i][0], dets[i][2]
-			col = col + int(float64(col)*0.115)
-			scale = int(float64(scale) * 0.75)
+			col = col + int(float64(col)*0.1)
+			scale = int(float64(scale) * 0.8)
 
 			if c.showFrame {
 				c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
@@ -337,8 +346,6 @@ func (c *Canvas) detectKeyPress() {
 			if c.cellSize > minCellSize {
 				c.cellSize--
 			}
-		default:
-			c.showFrame = false
 		}
 		return nil
 	})
