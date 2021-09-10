@@ -20,10 +20,11 @@ html, body {
 #snapshot {
 	display: none;
 	position: absolute;
-	width: 30px;
-	height: 30px;
+	width: 20px;
+	height: 20px;
 	border-radius: 50%;
-	background-color: #08d729;
+	background-color: #d79508;
+	opacity: 0.8;
 	left: 50%;
 	bottom: 20%;
 	z-index: 99;

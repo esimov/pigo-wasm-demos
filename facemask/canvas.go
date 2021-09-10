@@ -139,7 +139,8 @@ func NewCanvas() *Canvas {
 
 // Render calls the `requestAnimationFrame` Javascript function in asynchronous mode.
 func (c *Canvas) Render() error {
-	var data = make([]byte, c.windowSize.width*c.windowSize.height*4)
+	width, height := c.windowSize.width, c.windowSize.height
+	var data = make([]byte, width*height*4)
 	c.done = make(chan struct{})
 
 	img := c.loadImage("/images/surgical-mask.png")
@@ -169,6 +170,12 @@ func (c *Canvas) Render() error {
 			uint8Arr := js.Global().Get("Uint8Array").New(rgba)
 			js.CopyBytesToGo(data, uint8Arr)
 			gray := c.rgbaToGrayscale(data)
+
+			// Reset the data slice to its default values to avoid unnecessary memory allocation.
+			// Otherwise, the GC won't clean up the memory address allocated by this slice
+			// and the memory will keep up increasing by each iteration.
+			data = make([]byte, len(data))
+
 			res := det.DetectFaces(gray, height, width)
 			c.drawDetection(data, res)
 
@@ -176,6 +183,9 @@ func (c *Canvas) Render() error {
 		}()
 		return nil
 	})
+	// Release renderer to free up resources.
+	defer c.renderer.Release()
+
 	c.window.Call("requestAnimationFrame", c.renderer)
 	c.detectKeyPress()
 	<-c.done
@@ -365,18 +375,13 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 				c.ctx.Call("translate", js.ValueOf(tx).Int(), js.ValueOf(ty).Int())
 				c.ctx.Call("rotate", js.ValueOf(angle).Float())
 
-				c.ctx.Set("globalCompositeOperation", "destination-atop")
-				c.ctx.Call("drawImage", mask,
-					js.ValueOf(0).Int(), js.ValueOf(0).Int(),
-					js.ValueOf(width).Int(), js.ValueOf(height).Int(),
-				)
-
 				// Substract the image under the detected face region.
 				imgData := make([]byte, scale*scale*4)
 				subimg := c.ctx.Call("getImageData", row-scale/2, col-scale/2, scale, scale).Get("data")
 				uint8Arr := js.Global().Get("Uint8Array").New(subimg)
 				js.CopyBytesToGo(imgData, uint8Arr)
 
+				// Triangulate the facemask part.
 				buffer := c.triangulateDetectedRegion(imgData, dets[i])
 				uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
 				js.CopyBytesToJS(uint8Arr, buffer)
@@ -386,6 +391,14 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 
 				// Replace the underlying face region with the triangulated image.
 				c.ctx.Call("putImageData", rawData, row-scale/2, col-scale/2)
+
+				// We use globalCompositeOperation destination-atop drawing method to
+				// substract the overlayed facemask from the detected face region.
+				c.ctx.Set("globalCompositeOperation", "destination-atop")
+				c.ctx.Call("drawImage", mask,
+					js.ValueOf(0).Int(), js.ValueOf(0).Int(),
+					js.ValueOf(width).Int(), js.ValueOf(height).Int(),
+				)
 				c.ctx.Call("restore")
 			}
 
