@@ -87,7 +87,7 @@ $ make demo5
 ```
 ![facemask](https://user-images.githubusercontent.com/883386/132861943-5f130ec2-dae2-4034-9abd-4c9de0de066c.gif)
 
-This demo is meant to be an example for an idea of generating personalized triangulated face masks. The orange dot is getting visible when the head alignment is most appropriate for making a screen capture and this is when the head is aligned perpendicular. This demo can be expanded way further.
+This demo is meant to be a proof of concept for an idea of generating personalized triangulated face masks. The orange dot at the bottom of the screen is showing up when the head alignment is the most appropriate for making a screen capture and this is when the head is aligned perpendicular (+/- a predefined threshold). This demo can be expanded way further.
 
 #### Key bindings:
 <kbd>f</kbd> - Show/hide detected face marker<br/>
