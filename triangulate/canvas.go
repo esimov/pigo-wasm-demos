@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"log"
+	"image/draw"
 	"math"
+	"sync"
 	"syscall/js"
 
 	"github.com/esimov/pigo-wasm-demos/detector"
-	"github.com/esimov/triangle"
+	ellipse "github.com/esimov/pigo-wasm-demos/draw"
+	triangle "github.com/esimov/triangle/v2"
+	"golang.org/x/sync/errgroup"
 )
 
 // Canvas struct holds the Javascript objects needed for the Canvas creation
@@ -17,6 +20,7 @@ type Canvas struct {
 	done   chan struct{}
 	succCh chan struct{}
 	errCh  chan error
+	lock   sync.Mutex
 
 	// DOM elements
 	window     js.Value
@@ -116,8 +120,9 @@ func (c *Canvas) Render() error {
 	if err != nil {
 		return err
 	}
+
 	c.renderer = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-		go func() {
+		go func() error {
 			c.window.Get("stats").Call("begin")
 
 			c.reqID = c.window.Call("requestAnimationFrame", c.renderer)
@@ -137,9 +142,12 @@ func (c *Canvas) Render() error {
 			data = make([]byte, len(data))
 
 			res := det.DetectFaces(gray, height, width)
-			c.drawDetection(res)
-
+			if err := c.drawDetection(res); err != nil {
+				return err
+			}
 			c.window.Get("stats").Call("end")
+
+			return nil
 		}()
 		return nil
 	})
@@ -272,18 +280,28 @@ func (c *Canvas) imgToPix(img image.Image) []uint8 {
 }
 
 // triangulate triangulates the detected face region
-func (c *Canvas) triangulate(data []uint8, dets []int) []uint8 {
+func (c *Canvas) triangulate(unionMask *image.NRGBA, data []uint8, dets []int) ([]uint8, error) {
 	// Converts the array buffer to an image
 	img := c.pixToImage(data, int(float64(dets[2])*0.85))
-	res, _, _, err := c.triangle.Draw(img, nil, func() {})
+
+	// Call the face triangulation algorithm
+	triangled, _, _, err := c.triangle.Draw(img, *c.processor, func() {})
 	if err != nil {
-		log.Fatal(err.Error())
+		return nil, err
 	}
-	return c.imgToPix(res)
+
+	// Paste triangled image into the face template
+	c.lock.Lock()
+	draw.Draw(c.frame, img.Bounds(), triangled, image.Point{}, draw.Over)
+	c.lock.Unlock()
+
+	draw.DrawMask(img.(draw.Image), img.Bounds(), c.frame, image.Point{}, unionMask, image.Point{}, draw.Over)
+
+	return c.imgToPix(img), nil
 }
 
 // drawDetection draws the detected faces and eyes.
-func (c *Canvas) drawDetection(dets [][]int) {
+func (c *Canvas) drawDetection(dets [][]int) error {
 	c.processor.MaxPoints = c.trianglePoints
 	c.processor.Grayscale = c.isGrayScaled
 	c.processor.StrokeWidth = c.strokeWidth
@@ -292,39 +310,69 @@ func (c *Canvas) drawDetection(dets [][]int) {
 
 	c.triangle = &triangle.Image{*c.processor}
 
+	// Create a Union mask
+	c.lock = sync.Mutex{}
+	unionMask := image.NewNRGBA(image.Rect(0, 0, c.windowSize.width, c.windowSize.height))
+	g := new(errgroup.Group)
+
 	for i := 0; i < len(dets); i++ {
-		if dets[i][3] > 50 {
-			c.ctx.Call("beginPath")
-			c.ctx.Set("lineWidth", 2)
-			c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
+		g.Go(func() error {
+			if dets[i][3] > 50 {
+				c.ctx.Call("beginPath")
+				c.ctx.Set("lineWidth", 2)
+				c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
 
-			row, col, scale := dets[i][1], dets[i][0], dets[i][2]
-			col = col + int(float64(col)*0.1)
-			scale = int(float64(scale) * 0.85)
+				row, col, scale := dets[i][1], dets[i][0], dets[i][2]
+				col = col + int(float64(col)*0.1)
+				scale = int(float64(scale) * 0.85)
 
-			// Substract the image under the detected face region.
-			imgData := make([]byte, scale*scale*4)
-			subimg := c.ctx.Call("getImageData", row-scale/2, col-scale/2, scale, scale).Get("data")
-			uint8Arr := js.Global().Get("Uint8Array").New(subimg)
-			js.CopyBytesToGo(imgData, uint8Arr)
+				// Substract the image under the detected face region.
+				imgData := make([]byte, scale*scale*4)
+				subimg := c.ctx.Call("getImageData", row-scale/2, col-scale/2, scale, scale).Get("data")
+				uint8Arr := js.Global().Get("Uint8Array").New(subimg)
+				js.CopyBytesToGo(imgData, uint8Arr)
 
-			// Triangulate the detected face region.
-			buffer := c.triangulate(imgData, dets[i])
-			uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
-			js.CopyBytesToJS(uint8Arr, buffer)
+				// Add to union mask
+				ellipse := &ellipse.Ellipse{
+					Cx:     row,
+					Cy:     col,
+					Rx:     int(float64(scale) * 0.8 / 2),
+					Ry:     int(float64(scale) * 0.8 / 1.6),
+					Width:  c.windowSize.width,
+					Height: c.windowSize.height,
+				}
 
-			uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
-			rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
+				c.lock.Lock()
+				draw.Draw(unionMask, unionMask.Bounds(), ellipse, image.Point{}, draw.Over)
+				c.lock.Unlock()
 
-			// Replace the underlying face region with the triangulated image.
-			c.ctx.Call("putImageData", rawData, row-scale/2, col-scale/2)
+				// Triangulate the detected face region.
+				buffer, err := c.triangulate(unionMask, imgData, dets[i])
+				if err != nil {
+					return err
+				}
+				uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
+				js.CopyBytesToJS(uint8Arr, buffer)
 
-			if c.showFrame {
-				c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
-				c.ctx.Call("stroke")
+				uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
+				rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
+
+				// Replace the underlying face region with the triangulated image.
+				c.ctx.Call("putImageData", rawData, row-scale/2, col-scale/2)
+
+				if c.showFrame {
+					c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
+					c.ctx.Call("stroke")
+				}
 			}
-		}
+			return nil
+		})
 	}
+
+	if err := g.Wait(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // detectKeyPress listen for the keypress event and retrieves the key code.
