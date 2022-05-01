@@ -21,6 +21,7 @@ type Canvas struct {
 	succCh chan struct{}
 	errCh  chan error
 	lock   sync.Mutex
+	g      *errgroup.Group
 
 	// DOM elements
 	window     js.Value
@@ -50,15 +51,19 @@ type Canvas struct {
 	wireframe       int
 	trianglePoints  int
 	pointsThreshold int
+	pointRate       float64
 	strokeWidth     float64
 }
 
 const (
-	minTrianglePoints = 50
-	maxTrianglePoints = 500
+	minTrianglePoints = 150
+	maxTrianglePoints = 750
 
 	minPointsThreshold = 2
-	maxPointsThreshold = 50
+	maxPointsThreshold = 25
+
+	minPointRate = 0.010
+	maxPointRate = 0.095
 
 	minStrokeWidth = 0
 	maxStrokeWidth = 4
@@ -89,15 +94,18 @@ func NewCanvas() *Canvas {
 
 	c.wireframe = triangle.WithoutWireframe
 	c.strokeWidth = 0
-	c.trianglePoints = 150
-	c.pointsThreshold = 20
+	c.trianglePoints = 450
+	c.pointsThreshold = 10
+	c.pointRate = 0.075
 
 	det = detector.NewDetector()
 
 	c.processor = &triangle.Processor{
-		BlurRadius:      4,
-		SobelThreshold:  10,
+		BlurRadius:      2,
 		Noise:           0,
+		BlurFactor:      2,
+		EdgeFactor:      4,
+		PointRate:       c.pointRate,
 		MaxPoints:       c.trianglePoints,
 		PointsThreshold: c.pointsThreshold,
 		Wireframe:       c.wireframe,
@@ -106,7 +114,11 @@ func NewCanvas() *Canvas {
 		Grayscale:       c.isGrayScaled,
 		BgColor:         "#ffffff00",
 	}
+	c.lock = sync.Mutex{}
+	c.g = &errgroup.Group{}
+
 	c.triangle = &triangle.Image{*c.processor}
+
 	return &c
 }
 
@@ -265,7 +277,7 @@ func (c *Canvas) pixToImage(pixels []uint8, dim int) image.Image {
 	return c.frame
 }
 
-// imgToPix converts an image to an array buffer
+// imgToPix converts an image to a buffer array
 func (c *Canvas) imgToPix(img image.Image) []uint8 {
 	bounds := img.Bounds()
 	pixels := make([]uint8, 0, bounds.Max.X*bounds.Max.Y*4)
@@ -279,27 +291,6 @@ func (c *Canvas) imgToPix(img image.Image) []uint8 {
 	return pixels
 }
 
-// triangulate triangulates the detected face region
-func (c *Canvas) triangulate(unionMask *image.NRGBA, data []uint8, dets []int) ([]uint8, error) {
-	// Converts the array buffer to an image
-	img := c.pixToImage(data, int(float64(dets[2])*0.85))
-
-	// Call the face triangulation algorithm
-	triangled, _, _, err := c.triangle.Draw(img, *c.processor, func() {})
-	if err != nil {
-		return nil, err
-	}
-
-	// Paste triangled image into the face template
-	c.lock.Lock()
-	draw.Draw(c.frame, img.Bounds(), triangled, image.Point{}, draw.Over)
-	c.lock.Unlock()
-
-	draw.DrawMask(img.(draw.Image), img.Bounds(), c.frame, image.Point{}, unionMask, image.Point{}, draw.Over)
-
-	return c.imgToPix(img), nil
-}
-
 // drawDetection draws the detected faces and eyes.
 func (c *Canvas) drawDetection(dets [][]int) error {
 	c.processor.MaxPoints = c.trianglePoints
@@ -310,40 +301,32 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 
 	c.triangle = &triangle.Image{*c.processor}
 
-	// Create a Union mask
-	c.lock = sync.Mutex{}
-	unionMask := image.NewNRGBA(image.Rect(0, 0, c.windowSize.width, c.windowSize.height))
-	g := new(errgroup.Group)
-
-	for i := 0; i < len(dets); i++ {
-		g.Go(func() error {
-			if dets[i][3] > 50 {
+	for i, det := range dets {
+		i, det := i, det
+		c.g.Go(func() error {
+			if det[3] > 50 {
 				c.ctx.Call("beginPath")
 				c.ctx.Set("lineWidth", 2)
 				c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
 
-				row, col, scale := dets[i][1], dets[i][0], dets[i][2]
-				col = col + int(float64(col)*0.1)
-				scale = int(float64(scale) * 0.85)
-
+				row, col, scale := det[1], det[0], det[2]
 				// Substract the image under the detected face region.
 				imgData := make([]byte, scale*scale*4)
 				subimg := c.ctx.Call("getImageData", row-scale/2, col-scale/2, scale, scale).Get("data")
 				uint8Arr := js.Global().Get("Uint8Array").New(subimg)
 				js.CopyBytesToGo(imgData, uint8Arr)
 
+				unionMask := image.NewNRGBA(image.Rect(0, 0, scale, scale))
 				// Add to union mask
 				ellipse := &ellipse.Ellipse{
-					Cx:     row,
-					Cy:     col,
-					Rx:     int(float64(scale) * 0.8 / 2),
-					Ry:     int(float64(scale) * 0.8 / 1.6),
-					Width:  c.windowSize.width,
-					Height: c.windowSize.height,
+					Cx: row,
+					Cy: col,
+					Ry: int(float64(scale) * 0.8 / 2),
+					Rx: int(float64(scale) * 0.8 / 1.6),
 				}
-
+				// Draw the ellipse mask.
 				c.lock.Lock()
-				draw.Draw(unionMask, unionMask.Bounds(), ellipse, image.Point{}, draw.Over)
+				draw.Draw(unionMask, unionMask.Bounds(), ellipse, image.Point{X: row - scale/2, Y: col - scale/2}, draw.Over)
 				c.lock.Unlock()
 
 				// Triangulate the detected face region.
@@ -369,10 +352,37 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 		})
 	}
 
-	if err := g.Wait(); err != nil {
+	if err := c.g.Wait(); err != nil {
 		return err
 	}
 	return nil
+}
+
+// triangulate triangulates the detected face region
+func (c *Canvas) triangulate(unionMask *image.NRGBA, data []uint8, dets []int) ([]uint8, error) {
+	faceTemplate := image.NewNRGBA(image.Rect(0, 0, dets[2], dets[2]))
+	// Converts the buffer array to an image.
+	img := c.pixToImage(data, int(float64(dets[2])))
+
+	// Create a new image and draw the webcam frame captures into it.
+	newImg := image.NewNRGBA(image.Rect(0, 0, dets[2], dets[2]))
+	draw.Draw(newImg, newImg.Bounds(), img, newImg.Bounds().Min, draw.Over)
+
+	// Call the face triangulation algorithm.
+	triangled, _, _, err := c.triangle.Draw(newImg, *c.processor, func() {})
+	if err != nil {
+		return nil, err
+	}
+
+	// Paste triangled image into the face template.
+	c.lock.Lock()
+	draw.Draw(faceTemplate, img.Bounds(), triangled, image.Point{}, draw.Over)
+	c.lock.Unlock()
+
+	// Draw the triangled image through the facemask and on top of the source.
+	draw.DrawMask(img.(draw.Image), img.Bounds(), faceTemplate, image.Point{}, unionMask, image.Point{}, draw.Over)
+
+	return c.imgToPix(img), nil
 }
 
 // detectKeyPress listen for the keypress event and retrieves the key code.
@@ -394,11 +404,19 @@ func (c *Canvas) detectKeyPress() {
 			}
 		case keyCode.String() == "[":
 			if c.pointsThreshold > minPointsThreshold {
-				c.pointsThreshold -= 5
+				c.pointsThreshold -= 2
 			}
 		case keyCode.String() == "]":
 			if c.pointsThreshold <= maxPointsThreshold {
-				c.pointsThreshold += 5
+				c.pointsThreshold += 2
+			}
+		case keyCode.String() == "0":
+			if c.pointRate <= maxPointRate {
+				c.pointRate += 0.005
+			}
+		case keyCode.String() == "9":
+			if c.pointRate > minPointRate {
+				c.pointRate -= 0.005
 			}
 		case keyCode.String() == "1":
 			if c.strokeWidth > minStrokeWidth {
