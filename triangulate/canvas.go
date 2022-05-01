@@ -257,19 +257,14 @@ func (c *Canvas) pixToImage(pixels []uint8, dim int) image.Image {
 	c.frame = image.NewNRGBA(image.Rect(0, 0, dim, dim))
 	bounds := c.frame.Bounds()
 	dx, dy := bounds.Max.X, bounds.Max.Y
-	col := color.NRGBA{
-		R: uint8(0),
-		G: uint8(0),
-		B: uint8(0),
-		A: uint8(255),
-	}
+	col := color.NRGBA{}
 
 	for y := bounds.Min.Y; y < dy; y++ {
 		for x := bounds.Min.X; x < dx*4; x += 4 {
-			col.R = uint8(pixels[x+y*dx*4])
-			col.G = uint8(pixels[x+y*dx*4+1])
-			col.B = uint8(pixels[x+y*dx*4+2])
-			col.A = uint8(pixels[x+y*dx*4+3])
+			col.R = pixels[x+y*dx*4]
+			col.G = pixels[x+y*dx*4+1]
+			col.B = pixels[x+y*dx*4+2]
+			col.A = pixels[x+y*dx*4+3]
 
 			c.frame.SetNRGBA(y, int(x/4), col)
 		}
@@ -301,8 +296,8 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 
 	c.triangle = &triangle.Image{*c.processor}
 
-	for i, det := range dets {
-		i, det := i, det
+	for _, det := range dets {
+		det := det
 		c.g.Go(func() error {
 			if det[3] > 50 {
 				c.ctx.Call("beginPath")
@@ -330,7 +325,7 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 				c.lock.Unlock()
 
 				// Triangulate the detected face region.
-				buffer, err := c.triangulate(unionMask, imgData, dets[i])
+				buffer, err := c.triangulate(unionMask, imgData, det)
 				if err != nil {
 					return err
 				}
