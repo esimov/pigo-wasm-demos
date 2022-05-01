@@ -325,7 +325,7 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 				c.lock.Unlock()
 
 				// Triangulate the detected face region.
-				buffer, err := c.triangulate(unionMask, imgData, det)
+				buffer, err := c.triangulate(unionMask, imgData, scale)
 				if err != nil {
 					return err
 				}
@@ -354,13 +354,13 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 }
 
 // triangulate triangulates the detected face region
-func (c *Canvas) triangulate(unionMask *image.NRGBA, data []uint8, dets []int) ([]uint8, error) {
-	faceTemplate := image.NewNRGBA(image.Rect(0, 0, dets[2], dets[2]))
+func (c *Canvas) triangulate(unionMask *image.NRGBA, data []uint8, scale int) ([]uint8, error) {
+	faceTemplate := image.NewNRGBA(image.Rect(0, 0, scale, scale))
 	// Converts the buffer array to an image.
-	img := c.pixToImage(data, int(float64(dets[2])))
+	img := c.pixToImage(data, scale)
 
 	// Create a new image and draw the webcam frame captures into it.
-	newImg := image.NewNRGBA(image.Rect(0, 0, dets[2], dets[2]))
+	newImg := image.NewNRGBA(image.Rect(0, 0, scale, scale))
 	draw.Draw(newImg, newImg.Bounds(), img, newImg.Bounds().Min, draw.Over)
 
 	// Call the face triangulation algorithm.
