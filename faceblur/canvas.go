@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"math"
 	"syscall/js"
 
 	"github.com/esimov/pigo-wasm-demos/detector"
+	ellipse "github.com/esimov/pigo-wasm-demos/draw"
+	"github.com/esimov/stackblur-go"
 )
 
 // Canvas struct holds the Javascript objects needed for the Canvas creation
@@ -47,7 +50,7 @@ const (
 	maxBlurRadius = 50
 )
 
-var det *detector.Detector
+var pigo *detector.Detector
 
 // NewCanvas creates and initializes the new Canvas element
 func NewCanvas() *Canvas {
@@ -72,7 +75,7 @@ func NewCanvas() *Canvas {
 
 	c.blurRadius = 20
 
-	det = detector.NewDetector()
+	pigo = detector.NewDetector()
 	return &c
 }
 
@@ -82,12 +85,12 @@ func (c *Canvas) Render() error {
 	var data = make([]byte, width*height*4)
 	c.done = make(chan struct{})
 
-	err := det.UnpackCascades()
+	err := pigo.UnpackCascades()
 	if err != nil {
 		return err
 	}
 	c.renderer = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-		go func() {
+		go func() error {
 			c.window.Get("stats").Call("begin")
 
 			c.reqID = c.window.Call("requestAnimationFrame", c.renderer)
@@ -106,12 +109,15 @@ func (c *Canvas) Render() error {
 			// and the memory will keep up increasing by each iteration.
 			data = make([]byte, len(data))
 
-			res := det.DetectFaces(gray, height, width)
+			res := pigo.DetectFaces(gray, height, width)
 			if len(res) > 0 {
-				c.drawDetection(data, res)
+				if err := c.drawDetection(data, res); err != nil {
+					return err
+				}
 			}
-
 			c.window.Get("stats").Call("end")
+
+			return nil
 		}()
 		return nil
 	})
@@ -121,6 +127,7 @@ func (c *Canvas) Render() error {
 	c.window.Call("requestAnimationFrame", c.renderer)
 	c.detectKeyPress()
 	<-c.done
+
 	return nil
 }
 
@@ -208,19 +215,14 @@ func (c *Canvas) pixToImage(pixels []uint8, dim int) image.Image {
 	c.frame = image.NewNRGBA(image.Rect(0, 0, dim, dim))
 	bounds := c.frame.Bounds()
 	dx, dy := bounds.Max.X, bounds.Max.Y
-	col := color.NRGBA{
-		R: uint8(0),
-		G: uint8(0),
-		B: uint8(0),
-		A: uint8(255),
-	}
+	col := color.NRGBA{}
 
 	for y := bounds.Min.Y; y < dy; y++ {
 		for x := bounds.Min.X; x < dx*4; x += 4 {
-			col.R = uint8(pixels[x+y*dx*4])
-			col.G = uint8(pixels[x+y*dx*4+1])
-			col.B = uint8(pixels[x+y*dx*4+2])
-			col.A = uint8(pixels[x+y*dx*4+3])
+			col.R = pixels[x+y*dx*4]
+			col.G = pixels[x+y*dx*4+1]
+			col.B = pixels[x+y*dx*4+2]
+			col.A = pixels[x+y*dx*4+3]
 
 			c.frame.SetNRGBA(y, int(x/4), col)
 		}
@@ -242,26 +244,25 @@ func (c *Canvas) imgToPix(img image.Image) []uint8 {
 	return pixels
 }
 
-// pixelateDetectedRegion pixelates the detected face region
-func (c *Canvas) blurDetectedRegion(data []uint8, dets []int) []uint8 {
-	// Converts the array buffer to an image
-	img := c.pixToImage(data, int(float64(dets[2])*0.8))
+// blurFace blures out the detected face region
+func (c *Canvas) blurFace(src image.Image, scale int) (image.Image, error) {
+	img, err := stackblur.Process(src, c.blurRadius)
+	if err != nil {
+		return nil, err
+	}
 
-	blured := Blur(img, c.blurRadius)
-	return c.imgToPix(blured)
+	return img, nil
 }
 
 // drawDetection draws the detected faces and eyes.
-func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
-	for i := 0; i < len(dets); i++ {
-		if dets[i][3] > 50 {
+func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
+	for i, det := range dets {
+		if det[3] > 50 {
 			c.ctx.Call("beginPath")
 			c.ctx.Set("lineWidth", 2)
 			c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
 
-			row, col, scale := dets[i][1], dets[i][0], dets[i][2]
-			col = col + int(float64(col)*0.1)
-			scale = int(float64(scale) * 0.8)
+			row, col, scale := det[1], det[0], det[2]
 
 			if c.isBlured {
 				// Substract the image under the detected face region.
@@ -270,9 +271,36 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 				uint8Arr := js.Global().Get("Uint8Array").New(subimg)
 				js.CopyBytesToGo(imgData, uint8Arr)
 
-				buffer := c.blurDetectedRegion(imgData, dets[i])
+				unionMask := image.NewNRGBA(image.Rect(0, 0, scale, scale))
+				// Add to union mask
+				ellipse := &ellipse.Ellipse{
+					Cx: row,
+					Cy: col,
+					Ry: int(float64(scale) * 0.8 / 2.2),
+					Rx: int(float64(scale) * 0.8 / 1.55),
+				}
+				draw.Draw(unionMask, unionMask.Bounds(), ellipse, image.Point{X: row - scale/2, Y: col - scale/2}, draw.Over)
+
+				// Converts the buffer array to an image.
+				img := c.pixToImage(imgData, scale)
+
+				// Create a new image and draw the webcam frame captures into it.
+				newImg := image.NewNRGBA(image.Rect(0, 0, scale, scale))
+				draw.Draw(newImg, newImg.Bounds(), img, newImg.Bounds().Min, draw.Over)
+
+				// Apply the blur effect over the obtained pixel data converted to image.
+				blurred, err := c.blurFace(newImg, scale)
+				if err != nil {
+					return err
+				}
+				faceTemplate := image.NewNRGBA(image.Rect(0, 0, scale, scale))
+				draw.Draw(faceTemplate, img.Bounds(), blurred, image.Point{}, draw.Over)
+
+				// Draw the triangled image through the facemask and on top of the source.
+				draw.DrawMask(img.(draw.Image), img.Bounds(), faceTemplate, image.Point{}, unionMask, image.Point{}, draw.Over)
+
 				uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
-				js.CopyBytesToJS(uint8Arr, buffer)
+				js.CopyBytesToJS(uint8Arr, c.imgToPix(img))
 
 				uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
 				rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
@@ -287,14 +315,14 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 			}
 
 			if c.showPupil {
-				leftPupil := det.DetectLeftPupil(dets[i])
+				leftPupil := pigo.DetectLeftPupil(dets[i])
 				if leftPupil != nil {
 					col, row, scale := leftPupil.Col, leftPupil.Row, leftPupil.Scale/8
 					c.ctx.Call("moveTo", col+int(scale), row)
 					c.ctx.Call("arc", col, row, scale, 0, 2*math.Pi, true)
 				}
 
-				rightPupil := det.DetectRightPupil(dets[i])
+				rightPupil := pigo.DetectRightPupil(dets[i])
 				if rightPupil != nil {
 					col, row, scale := rightPupil.Col, rightPupil.Row, rightPupil.Scale/8
 					c.ctx.Call("moveTo", col+int(scale), row)
@@ -304,6 +332,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 			}
 		}
 	}
+	return nil
 }
 
 // detectKeyPress listen for the keypress event and retrieves the key code.

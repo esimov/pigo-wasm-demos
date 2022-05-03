@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/esimov/pigo v1.4.5
+	github.com/esimov/stackblur-go v1.1.0
 	github.com/esimov/triangle v1.3.0
 	github.com/esimov/triangle/v2 v2.0.0
 	github.com/fogleman/gg v1.3.0
