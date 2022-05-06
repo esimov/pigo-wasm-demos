@@ -10,11 +10,13 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"sync"
 	"syscall/js"
 	"time"
 
 	"github.com/esimov/pigo-wasm-demos/detector"
 	"github.com/esimov/triangle"
+	"golang.org/x/sync/errgroup"
 )
 
 // Canvas struct holds the Javascript objects needed for the Canvas creation
@@ -22,6 +24,8 @@ type Canvas struct {
 	done   chan struct{}
 	succCh chan struct{}
 	errCh  chan error
+	lock   sync.Mutex
+	g      *errgroup.Group
 
 	// DOM elements
 	window      js.Value
@@ -69,7 +73,7 @@ const (
 )
 
 var (
-	det  *detector.Detector
+	pigo *detector.Detector
 	mask js.Value
 
 	maskWidth  int
@@ -119,12 +123,14 @@ func NewCanvas() *Canvas {
 	c.trianglePoints = 200
 	c.pointsThreshold = 20
 
-	det = detector.NewDetector()
+	pigo = detector.NewDetector()
 
 	c.processor = &triangle.Processor{
-		BlurRadius:      4,
-		SobelThreshold:  10,
+		BlurRadius:      2,
 		Noise:           0,
+		BlurFactor:      2,
+		EdgeFactor:      4,
+		PointRate:       0.075,
 		MaxPoints:       c.trianglePoints,
 		PointsThreshold: c.pointsThreshold,
 		Wireframe:       c.wireframe,
@@ -133,6 +139,10 @@ func NewCanvas() *Canvas {
 		Grayscale:       c.isGrayScaled,
 		BgColor:         "#ffffff00",
 	}
+
+	c.lock = sync.Mutex{}
+	c.g = &errgroup.Group{}
+
 	c.triangle = &triangle.Image{*c.processor}
 	return &c
 }
@@ -150,7 +160,7 @@ func (c *Canvas) Render() error {
 	maskWidth = js.ValueOf(mask.Get("naturalWidth")).Int()
 	maskHeight = js.ValueOf(mask.Get("naturalHeight")).Int()
 
-	err := det.UnpackCascades()
+	err := pigo.UnpackCascades()
 	if err != nil {
 		return err
 	}
@@ -176,7 +186,7 @@ func (c *Canvas) Render() error {
 			// and the memory will keep up increasing by each iteration.
 			data = make([]byte, len(data))
 
-			res := det.DetectFaces(gray, height, width)
+			res := pigo.DetectFaces(gray, height, width)
 			c.drawDetection(data, res)
 
 			c.window.Get("stats").Call("end")
@@ -311,20 +321,21 @@ func (c *Canvas) imgToPix(img image.Image) []uint8 {
 	return pixels
 }
 
-// pixelateDetectedRegion pixelates the detected face region
-func (c *Canvas) triangulateDetectedRegion(data []uint8, dets []int) []uint8 {
-	// Converts the array buffer to an image
+// triangulate triangulates the image passed as pixel data
+func (c *Canvas) triangulate(data []uint8, dets []int) ([]uint8, error) {
+	// Converts the buffer array to an image.
 	img := c.pixToImage(data, int(float64(dets[2])))
 
-	res, _, _, err := c.triangle.Draw(img, nil, func() {})
+	// Call the face triangulation algorithm.
+	res, _, _, err := c.triangle.Draw(img, *c.processor, func() {})
 	if err != nil {
-		log.Fatal(err.Error())
+		return nil, err
 	}
-	return c.imgToPix(res)
+	return c.imgToPix(res), nil
 }
 
 // drawDetection draws the detected faces and eyes.
-func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
+func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 	c.processor.MaxPoints = c.trianglePoints
 	c.processor.Grayscale = c.isGrayScaled
 	c.processor.StrokeWidth = c.strokeWidth
@@ -335,79 +346,95 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 
 	var imgScale float64
 
-	for i := 0; i < len(dets); i++ {
-		if dets[i][3] > 50 {
-			c.ctx.Call("beginPath")
-			c.ctx.Set("lineWidth", 2)
-			c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
+	for _, det := range dets {
+		det := det
+		c.g.Go(func() error {
+			if det[3] > 50 {
+				c.ctx.Call("beginPath")
+				c.ctx.Set("lineWidth", 2)
+				c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
 
-			row, col, scale := dets[i][1], dets[i][0], dets[i][2]
-			row = row + int(float64(row)*0.02)
-			col = col + int(float64(col)*0.2)
+				row, col, scale := det[1], det[0], det[2]
+				row = row + int(float64(row)*0.02)
+				col = col + int(float64(col)*0.2)
 
-			leftPupil := det.DetectLeftPupil(dets[i])
-			rightPupil := det.DetectRightPupil(dets[i])
+				leftPupil := pigo.DetectLeftPupil(det)
+				rightPupil := pigo.DetectRightPupil(det)
 
-			if leftPupil != nil && rightPupil != nil {
-				points := det.DetectMouthPoints(leftPupil, rightPupil)
-				p1, p2 := points[0], points[1]
+				if leftPupil != nil && rightPupil != nil {
+					points := pigo.DetectMouthPoints(leftPupil, rightPupil)
+					p1, p2 := points[0], points[1]
 
-				// Calculate the lean angle between the two mouth points.
-				angle := 1 - (math.Atan2(float64(p2[0]-p1[0]), float64(p2[1]-p1[1])) * 180 / math.Pi / 90)
-				if math.Abs(angle) > 0.1 {
-					c.snapshotBtn.Set("style", "display:none")
-				} else {
-					c.snapshotBtn.Set("style", "display:block")
-				}
-
-				if scale < maskWidth || scale < maskHeight {
-					if maskHeight > maskWidth {
-						imgScale = float64(scale) / float64(maskHeight)
+					// Calculate the lean angle between the two mouth points.
+					angle := 1 - (math.Atan2(float64(p2[0]-p1[0]), float64(p2[1]-p1[1])) * 180 / math.Pi / 90)
+					if math.Abs(angle) > 0.1 {
+						c.snapshotBtn.Set("style", "display:none")
 					} else {
-						imgScale = float64(scale) / float64(maskWidth)
+						c.snapshotBtn.Set("style", "display:block")
 					}
+
+					if scale < maskWidth || scale < maskHeight {
+						if maskHeight > maskWidth {
+							imgScale = float64(scale) / float64(maskHeight)
+						} else {
+							imgScale = float64(scale) / float64(maskWidth)
+						}
+					}
+					width, height := float64(maskWidth)*imgScale*0.7, float64(maskHeight)*imgScale*0.7
+					tx := row - int(width/2)
+					ty := p1[1] + (p1[1]-p2[1])/2 - int(height*0.5)
+
+					c.ctx.Call("save")
+					c.ctx.Call("translate", js.ValueOf(tx).Int(), js.ValueOf(ty).Int())
+					c.ctx.Call("rotate", js.ValueOf(angle).Float())
+
+					// Substract the image under the detected face region.
+					c.lock.Lock()
+
+					imgData := make([]byte, scale*scale*4)
+					subimg := c.ctx.Call("getImageData", row-scale/2, col-scale/2, scale, scale).Get("data")
+					uint8Arr := js.Global().Get("Uint8Array").New(subimg)
+					js.CopyBytesToGo(imgData, uint8Arr)
+
+					// Triangulate the facemask part.
+					buffer, err := c.triangulate(imgData, det)
+					if err != nil {
+						return err
+					}
+					uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
+					js.CopyBytesToJS(uint8Arr, buffer)
+
+					uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
+					rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
+
+					// Replace the underlying face region with the triangulated image.
+					c.ctx.Call("putImageData", rawData, row-scale/2, col-scale/2)
+
+					// We use globalCompositeOperation destination-atop drawing method to
+					// substract the overlayed facemask from the detected face region.
+					c.ctx.Set("globalCompositeOperation", "destination-atop")
+					c.ctx.Call("drawImage", mask,
+						js.ValueOf(0).Int(), js.ValueOf(0).Int(),
+						js.ValueOf(width).Int(), js.ValueOf(height).Int(),
+					)
+					c.ctx.Call("restore")
+
+					c.lock.Unlock()
 				}
-				width, height := float64(maskWidth)*imgScale*0.7, float64(maskHeight)*imgScale*0.7
-				tx := row - int(width/2)
-				ty := p1[1] + (p1[1]-p2[1])/2 - int(height*0.5)
 
-				c.ctx.Call("save")
-				c.ctx.Call("translate", js.ValueOf(tx).Int(), js.ValueOf(ty).Int())
-				c.ctx.Call("rotate", js.ValueOf(angle).Float())
-
-				// Substract the image under the detected face region.
-				imgData := make([]byte, scale*scale*4)
-				subimg := c.ctx.Call("getImageData", row-scale/2, col-scale/2, scale, scale).Get("data")
-				uint8Arr := js.Global().Get("Uint8Array").New(subimg)
-				js.CopyBytesToGo(imgData, uint8Arr)
-
-				// Triangulate the facemask part.
-				buffer := c.triangulateDetectedRegion(imgData, dets[i])
-				uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
-				js.CopyBytesToJS(uint8Arr, buffer)
-
-				uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
-				rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
-
-				// Replace the underlying face region with the triangulated image.
-				c.ctx.Call("putImageData", rawData, row-scale/2, col-scale/2)
-
-				// We use globalCompositeOperation destination-atop drawing method to
-				// substract the overlayed facemask from the detected face region.
-				c.ctx.Set("globalCompositeOperation", "destination-atop")
-				c.ctx.Call("drawImage", mask,
-					js.ValueOf(0).Int(), js.ValueOf(0).Int(),
-					js.ValueOf(width).Int(), js.ValueOf(height).Int(),
-				)
-				c.ctx.Call("restore")
+				if c.showFrame {
+					c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
+					c.ctx.Call("stroke")
+				}
 			}
-
-			if c.showFrame {
-				c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
-				c.ctx.Call("stroke")
-			}
-		}
+			return nil
+		})
 	}
+	if err := c.g.Wait(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // detectKeyPress listen for the keypress event and retrieves the key code.

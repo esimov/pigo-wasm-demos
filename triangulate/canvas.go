@@ -346,7 +346,6 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 			return nil
 		})
 	}
-
 	if err := c.g.Wait(); err != nil {
 		return err
 	}
