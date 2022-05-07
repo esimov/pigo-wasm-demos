@@ -5,34 +5,38 @@ import (
 	"image/color"
 )
 
-// Ellipse defines the struct components required to apply the ellipse's formula.
-type Ellipse struct {
-	Cx int // center x
-	Cy int // center y
-	Rx int // semi-major axis x
-	Ry int // semi-minor axis y
+// ellipse defines the struct components required to apply the ellipse's formula.
+type ellipse struct {
+	cx int // center x
+	cy int // center y
+	rx int // semi-major axis x
+	ry int // semi-minor axis y
 }
 
-func (e *Ellipse) ColorModel() color.Model {
+func NewEllipse(cx, cy, rx, ry int) *ellipse {
+	return &ellipse{cx, cy, rx, ry}
+}
+
+func (e *ellipse) ColorModel() color.Model {
 	return color.AlphaModel
 }
 
-func (e *Ellipse) Bounds() image.Rectangle {
+func (e *ellipse) Bounds() image.Rectangle {
 	min := image.Point{
-		X: e.Cx - e.Rx,
-		Y: e.Cy - e.Ry,
+		X: e.cx - e.rx,
+		Y: e.cy - e.ry,
 	}
 	max := image.Point{
-		X: e.Cx + e.Rx,
-		Y: e.Cy + e.Ry,
+		X: e.cx + e.rx,
+		Y: e.cy + e.ry,
 	}
 	return image.Rectangle{Min: min, Max: max} // size of just mask
 }
 
-func (e *Ellipse) At(x, y int) color.Color {
+func (e *ellipse) At(x, y int) color.Color {
 	// Equation of ellipse
-	p1 := float64((x-e.Cx)*(x-e.Cx)) / float64(e.Rx*e.Rx)
-	p2 := float64((y-e.Cy)*(y-e.Cy)) / float64(e.Ry*e.Ry)
+	p1 := float64((x-e.cx)*(x-e.cx)) / float64(e.rx*e.rx)
+	p2 := float64((y-e.cy)*(y-e.cy)) / float64(e.ry*e.ry)
 	eqn := p1 + p2
 
 	if eqn <= 1 {

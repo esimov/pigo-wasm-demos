@@ -388,21 +388,21 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 					c.ctx.Call("translate", js.ValueOf(tx).Int(), js.ValueOf(ty).Int())
 					c.ctx.Call("rotate", js.ValueOf(angle).Float())
 
-					// Substract the image under the detected face region.
 					c.lock.Lock()
 
+					// Substract the image under the detected face region.
 					imgData := make([]byte, scale*scale*4)
 					subimg := c.ctx.Call("getImageData", row-scale/2, col-scale/2, scale, scale).Get("data")
 					uint8Arr := js.Global().Get("Uint8Array").New(subimg)
 					js.CopyBytesToGo(imgData, uint8Arr)
 
 					// Triangulate the facemask part.
-					buffer, err := c.triangulate(imgData, det)
+					triangle, err := c.triangulate(imgData, det)
 					if err != nil {
 						return err
 					}
 					uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
-					js.CopyBytesToJS(uint8Arr, buffer)
+					js.CopyBytesToJS(uint8Arr, triangle)
 
 					uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
 					rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
@@ -410,7 +410,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 					// Replace the underlying face region with the triangulated image.
 					c.ctx.Call("putImageData", rawData, row-scale/2, col-scale/2)
 
-					// We use globalCompositeOperation destination-atop drawing method to
+					// We are using globalCompositeOperation `destination-atop` drawing method to
 					// substract the overlayed facemask from the detected face region.
 					c.ctx.Set("globalCompositeOperation", "destination-atop")
 					c.ctx.Call("drawImage", mask,
@@ -418,7 +418,6 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 						js.ValueOf(width).Int(), js.ValueOf(height).Int(),
 					)
 					c.ctx.Call("restore")
-
 					c.lock.Unlock()
 				}
 

@@ -273,12 +273,12 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 
 				unionMask := image.NewNRGBA(image.Rect(0, 0, scale, scale))
 				// Add to union mask
-				ellipse := &ellipse.Ellipse{
-					Cx: row,
-					Cy: col,
-					Ry: int(float64(scale) * 0.8 / 2.2),
-					Rx: int(float64(scale) * 0.8 / 1.55),
-				}
+				ellipse := ellipse.NewEllipse(
+					row,
+					col,
+					int(float64(scale)*0.8/1.55),
+					int(float64(scale)*0.8/2.2),
+				)
 				draw.Draw(unionMask, unionMask.Bounds(), ellipse, image.Point{X: row - scale/2, Y: col - scale/2}, draw.Over)
 
 				// Converts the buffer array to an image.
