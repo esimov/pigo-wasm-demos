@@ -41,7 +41,7 @@ type Canvas struct {
 	// Canvas interaction related variables
 	showPupil  bool
 	showFrame  bool
-	isBlured   bool
+	isBlurred  bool
 	blurRadius uint32
 
 	frame *image.NRGBA
@@ -70,11 +70,11 @@ func NewCanvas() *Canvas {
 
 	c.canvas.Set("width", c.windowSize.width)
 	c.canvas.Set("height", c.windowSize.height)
+	c.canvas.Set("id", "canvas")
 	c.ellipse.Set("width", c.windowSize.width)
 	c.ellipse.Set("height", c.windowSize.height)
 	c.offscreen.Set("width", c.windowSize.width)
 	c.offscreen.Set("height", c.windowSize.height)
-	c.canvas.Set("id", "canvas")
 	c.body.Call("appendChild", c.canvas)
 
 	c.ctx = c.canvas.Call("getContext", "2d")
@@ -83,7 +83,7 @@ func NewCanvas() *Canvas {
 
 	c.showPupil = false
 	c.showFrame = false
-	c.isBlured = true
+	c.isBlurred = true
 	c.blurRadius = 20
 
 	pigo = detector.NewDetector()
@@ -234,7 +234,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 
 			row, col, scale := det[1], det[0], int(float64(det[2])*1.2)
 
-			if c.isBlured {
+			if c.isBlurred {
 				// Substract the image under the detected face region.
 				imgData := make([]byte, scale*scale*4)
 				subimg := c.ctx.Call("getImageData", row-scale/2, col-scale/2, scale, scale).Get("data")
@@ -289,7 +289,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 
 				// Clear out the canvas on each frame.
 				c.ctxOffscr.Call("clearRect", 0, 0, c.windowSize.width, c.windowSize.height)
-				// Replace the underlying face region with the blured image.
+				// Replace the underlying face region with the blurred image.
 				c.ctxOffscr.Call("putImageData", rawData, 0, 0)
 
 				c.ctxOffscr.Call("save")
@@ -339,7 +339,7 @@ func (c *Canvas) detectKeyPress() {
 		case keyCode.String() == "f":
 			c.showFrame = !c.showFrame
 		case keyCode.String() == "b":
-			c.isBlured = !c.isBlured
+			c.isBlurred = !c.isBlurred
 		case keyCode.String() == "]":
 			if c.blurRadius <= maxBlurRadius {
 				c.blurRadius++

@@ -1,20 +1,14 @@
 package facemask
 
 import (
-	"encoding/base64"
 	"fmt"
 	"image"
-	"image/color"
-	"io/ioutil"
-	"log"
 	"math"
-	"net/http"
-	"net/url"
 	"sync"
 	"syscall/js"
-	"time"
 
 	"github.com/esimov/pigo-wasm-demos/detector"
+	"github.com/esimov/pigo-wasm-demos/pixels"
 	"github.com/esimov/triangle"
 	"golang.org/x/sync/errgroup"
 )
@@ -153,7 +147,7 @@ func (c *Canvas) Render() error {
 	var data = make([]byte, width*height*4)
 	c.done = make(chan struct{})
 
-	img := c.loadImage("/images/surgical-mask.png")
+	img := pixels.LoadImage("/images/surgical-mask.png")
 	mask = js.Global().Call("eval", "new Image()")
 	mask.Set("src", "data:image/png;base64,"+img)
 
@@ -179,7 +173,9 @@ func (c *Canvas) Render() error {
 			// be able to transfer it from Javascript to Go via the js.CopyBytesToGo function.
 			uint8Arr := js.Global().Get("Uint8Array").New(rgba)
 			js.CopyBytesToGo(data, uint8Arr)
-			gray := c.rgbaToGrayscale(data)
+
+			dx, dy := c.windowSize.width, c.windowSize.height
+			gray := pixels.RgbaToGrayscale(data, dx, dy)
 
 			// Reset the data slice to its default values to avoid unnecessary memory allocation.
 			// Otherwise, the GC won't clean up the memory address allocated by this slice
@@ -267,50 +263,10 @@ func (c *Canvas) StartWebcam() (*Canvas, error) {
 	}
 }
 
-// rgbaToGrayscale converts the rgb pixel values to grayscale
-func (c *Canvas) rgbaToGrayscale(data []uint8) []uint8 {
-	rows, cols := c.windowSize.width, c.windowSize.height
-	for r := 0; r < rows; r++ {
-		for c := 0; c < cols; c++ {
-			// gray = 0.2*red + 0.7*green + 0.1*blue
-			data[r*cols+c] = uint8(math.Round(
-				0.2126*float64(data[r*4*cols+4*c+0]) +
-					0.7152*float64(data[r*4*cols+4*c+1]) +
-					0.0722*float64(data[r*4*cols+4*c+2])))
-		}
-	}
-	return data
-}
-
-// pixToImage converts an array buffer to an image.
-func (c *Canvas) pixToImage(pixels []uint8, dim int) image.Image {
-	c.frame = image.NewNRGBA(image.Rect(0, 0, dim, dim))
-	bounds := c.frame.Bounds()
-	dx, dy := bounds.Max.X, bounds.Max.Y
-	col := color.NRGBA{
-		R: uint8(0),
-		G: uint8(0),
-		B: uint8(0),
-		A: uint8(255),
-	}
-
-	for y := bounds.Min.Y; y < dy; y++ {
-		for x := bounds.Min.X; x < dx*4; x += 4 {
-			col.R = uint8(pixels[x+y*dx*4])
-			col.G = uint8(pixels[x+y*dx*4+1])
-			col.B = uint8(pixels[x+y*dx*4+2])
-			col.A = uint8(pixels[x+y*dx*4+3])
-
-			c.frame.SetNRGBA(y, int(x/4), col)
-		}
-	}
-	return c.frame
-}
-
 // triangulate triangulates the image passed as pixel data
 func (c *Canvas) triangulate(data []uint8, dets []int) ([]uint8, error) {
 	// Converts the buffer array to an image.
-	img := c.pixToImage(data, int(float64(dets[2])))
+	img := pixels.PixToImage(data, int(float64(dets[2])))
 
 	// Call the face triangulation algorithm.
 	res, _, _, err := c.triangle.Draw(img, *c.processor, func() {})
@@ -374,8 +330,6 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 					c.ctx.Call("translate", js.ValueOf(tx).Int(), js.ValueOf(ty).Int())
 					c.ctx.Call("rotate", js.ValueOf(angle).Float())
 
-					c.lock.Lock()
-
 					// Substract the image under the detected face region.
 					imgData := make([]byte, scale*scale*4)
 					subimg := c.ctx.Call("getImageData", row-scale/2, col-scale/2, scale, scale).Get("data")
@@ -383,10 +337,13 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 					js.CopyBytesToGo(imgData, uint8Arr)
 
 					// Triangulate the facemask part.
+					c.lock.Lock()
 					triangle, err := c.triangulate(imgData, det)
 					if err != nil {
 						return err
 					}
+					c.lock.Unlock()
+
 					uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
 					js.CopyBytesToJS(uint8Arr, triangle)
 
@@ -404,7 +361,6 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 						js.ValueOf(width).Int(), js.ValueOf(height).Int(),
 					)
 					c.ctx.Call("restore")
-					c.lock.Unlock()
 				}
 
 				if c.showFrame {
@@ -476,26 +432,4 @@ func (c *Canvas) Log(args ...interface{}) {
 func (c *Canvas) Alert(args ...interface{}) {
 	alert := c.window.Get("alert")
 	alert.Invoke(args...)
-}
-
-// loadImage load the source image and encodes it to base64 format.
-func (c *Canvas) loadImage(path string) string {
-	href := js.Global().Get("location").Get("href")
-	u, err := url.Parse(href.String())
-	if err != nil {
-		log.Fatal(err)
-	}
-	u.Path = path
-	u.RawQuery = fmt.Sprint(time.Now().UnixNano())
-
-	resp, err := http.Get(u.String())
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer resp.Body.Close()
-	b, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return base64.StdEncoding.EncodeToString(b)
 }
