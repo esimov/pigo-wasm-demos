@@ -3,6 +3,7 @@ package draw
 import (
 	"image"
 	"image/color"
+	"math"
 )
 
 // ellipse defines the struct components required to apply the ellipse's formula.
@@ -40,7 +41,15 @@ func (e *ellipse) At(x, y int) color.Color {
 	eqn := p1 + p2
 
 	if eqn <= 1 {
-		return color.Alpha{255}
+		rMin := math.Min(float64(e.rx), float64(e.ry))
+		rMax := math.Max(float64(e.rx), float64(e.ry))
+
+		grad := &NewRadialGradient(float64(x), float64(y), rMin*0.7, float64(x), float64(y), rMax-(rMin/4))
+		grad.AddColorStop(0, color.RGBA{255, 255, 255, 255})
+		grad.AddColorStop(0.6, color.RGBA{127, 127, 127, 127})
+		grad.AddColorStop(1, color.RGBA{0, 0, 0, 0})
+
+		return grad.ColorAt(e.cx, e.cy)
 	}
 	return color.Alpha{0}
 }
