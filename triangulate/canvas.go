@@ -3,14 +3,13 @@ package triangulate
 import (
 	"fmt"
 	"image"
-	"image/color"
 	"image/draw"
-	"math"
 	"sync"
 	"syscall/js"
 
 	"github.com/esimov/pigo-wasm-demos/detector"
 	ellipse "github.com/esimov/pigo-wasm-demos/draw"
+	"github.com/esimov/pigo-wasm-demos/pixels"
 	triangle "github.com/esimov/triangle/v2"
 	"golang.org/x/sync/errgroup"
 )
@@ -146,7 +145,9 @@ func (c *Canvas) Render() error {
 			// be able to transfer it from Javascript to Go via the js.CopyBytesToGo function.
 			uint8Arr := js.Global().Get("Uint8Array").New(rgba)
 			js.CopyBytesToGo(data, uint8Arr)
-			gray := c.rgbaToGrayscale(data)
+
+			dx, dy := c.windowSize.width, c.windowSize.height
+			gray := pixels.RgbaToGrayscale(data, dx, dy)
 
 			// Reset the data slice to its default values to avoid unnecessary memory allocation.
 			// Otherwise, the GC won't clean up the memory address allocated by this slice
@@ -237,55 +238,6 @@ func (c *Canvas) StartWebcam() (*Canvas, error) {
 	}
 }
 
-// rgbaToGrayscale converts the rgb pixel values to grayscale
-func (c *Canvas) rgbaToGrayscale(data []uint8) []uint8 {
-	rows, cols := c.windowSize.width, c.windowSize.height
-	for r := 0; r < rows; r++ {
-		for c := 0; c < cols; c++ {
-			// gray = 0.2*red + 0.7*green + 0.1*blue
-			data[r*cols+c] = uint8(math.Round(
-				0.2126*float64(data[r*4*cols+4*c+0]) +
-					0.7152*float64(data[r*4*cols+4*c+1]) +
-					0.0722*float64(data[r*4*cols+4*c+2])))
-		}
-	}
-	return data
-}
-
-// pixToImage converts an array buffer to an image.
-func (c *Canvas) pixToImage(pixels []uint8, dim int) image.Image {
-	c.frame = image.NewNRGBA(image.Rect(0, 0, dim, dim))
-	bounds := c.frame.Bounds()
-	dx, dy := bounds.Max.X, bounds.Max.Y
-	col := color.NRGBA{}
-
-	for y := bounds.Min.Y; y < dy; y++ {
-		for x := bounds.Min.X; x < dx*4; x += 4 {
-			col.R = pixels[x+y*dx*4]
-			col.G = pixels[x+y*dx*4+1]
-			col.B = pixels[x+y*dx*4+2]
-			col.A = pixels[x+y*dx*4+3]
-
-			c.frame.SetNRGBA(y, int(x/4), col)
-		}
-	}
-	return c.frame
-}
-
-// imgToPix converts an image to a buffer array
-func (c *Canvas) imgToPix(img image.Image) []uint8 {
-	bounds := img.Bounds()
-	pixels := make([]uint8, 0, bounds.Max.X*bounds.Max.Y*4)
-
-	for i := bounds.Min.X; i < bounds.Max.X; i++ {
-		for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
-			r, g, b, a := img.At(i, j).RGBA()
-			pixels = append(pixels, uint8(r>>8), uint8(g>>8), uint8(b>>8), uint8(a>>8))
-		}
-	}
-	return pixels
-}
-
 // drawDetection draws the detected faces and eyes.
 func (c *Canvas) drawDetection(dets [][]int) error {
 	c.processor.MaxPoints = c.trianglePoints
@@ -356,7 +308,7 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 func (c *Canvas) triangulate(unionMask *image.NRGBA, data []uint8, scale int) ([]uint8, error) {
 	faceTemplate := image.NewNRGBA(image.Rect(0, 0, scale, scale))
 	// Converts the buffer array to an image.
-	img := c.pixToImage(data, scale)
+	img := pixels.PixToImage(data, scale)
 
 	// Create a new image and draw the webcam frame captures into it.
 	newImg := image.NewNRGBA(image.Rect(0, 0, scale, scale))
@@ -376,7 +328,7 @@ func (c *Canvas) triangulate(unionMask *image.NRGBA, data []uint8, scale int) ([
 	// Draw the triangled image through the facemask and on top of the source.
 	draw.DrawMask(img.(draw.Image), img.Bounds(), faceTemplate, image.Point{}, unionMask, image.Point{}, draw.Over)
 
-	return c.imgToPix(img), nil
+	return pixels.ImgToPix(img), nil
 }
 
 // detectKeyPress listen for the keypress event and retrieves the key code.

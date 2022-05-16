@@ -307,20 +307,6 @@ func (c *Canvas) pixToImage(pixels []uint8, dim int) image.Image {
 	return c.frame
 }
 
-// imgToPix converts an image to an array buffer
-func (c *Canvas) imgToPix(img image.Image) []uint8 {
-	bounds := img.Bounds()
-	pixels := make([]uint8, 0, bounds.Max.X*bounds.Max.Y*4)
-
-	for i := bounds.Min.X; i < bounds.Max.X; i++ {
-		for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
-			r, g, b, a := img.At(i, j).RGBA()
-			pixels = append(pixels, uint8(r>>8), uint8(g>>8), uint8(b>>8), uint8(a>>8))
-		}
-	}
-	return pixels
-}
-
 // triangulate triangulates the image passed as pixel data
 func (c *Canvas) triangulate(data []uint8, dets []int) ([]uint8, error) {
 	// Converts the buffer array to an image.
@@ -331,7 +317,7 @@ func (c *Canvas) triangulate(data []uint8, dets []int) ([]uint8, error) {
 	if err != nil {
 		return nil, err
 	}
-	return c.imgToPix(res), nil
+	return pixels.ImgToPix(res), nil
 }
 
 // drawDetection draws the detected faces and eyes.
