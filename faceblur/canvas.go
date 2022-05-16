@@ -9,7 +9,6 @@ import (
 	"syscall/js"
 
 	"github.com/esimov/pigo-wasm-demos/detector"
-	ellipse "github.com/esimov/pigo-wasm-demos/draw"
 	"github.com/esimov/stackblur-go"
 )
 
@@ -26,20 +25,23 @@ type Canvas struct {
 	windowSize struct{ width, height int }
 
 	// Canvas properties
-	canvas   js.Value
-	ctx      js.Value
-	reqID    js.Value
-	renderer js.Func
+	canvas    js.Value
+	ellipse   js.Value
+	offscreen js.Value
+	ctx       js.Value
+	ctxMask   js.Value
+	ctxOffscr js.Value
+	reqID     js.Value
+	renderer  js.Func
 
 	// Webcam properties
 	navigator js.Value
 	video     js.Value
 
 	// Canvas interaction related variables
-	showPupil bool
-	showFrame bool
-	isBlured  bool
-
+	showPupil  bool
+	showFrame  bool
+	isBlured   bool
 	blurRadius uint32
 
 	frame *image.NRGBA
@@ -59,20 +61,29 @@ func NewCanvas() *Canvas {
 	c.doc = c.window.Get("document")
 	c.body = c.doc.Get("body")
 
-	c.windowSize.width = 1024
-	c.windowSize.height = 640
+	c.windowSize.width = 768
+	c.windowSize.height = 576
 
 	c.canvas = c.doc.Call("createElement", "canvas")
+	c.ellipse = c.doc.Call("createElement", "canvas")
+	c.offscreen = c.doc.Call("createElement", "canvas")
+
 	c.canvas.Set("width", c.windowSize.width)
 	c.canvas.Set("height", c.windowSize.height)
+	c.ellipse.Set("width", c.windowSize.width)
+	c.ellipse.Set("height", c.windowSize.height)
+	c.offscreen.Set("width", c.windowSize.width)
+	c.offscreen.Set("height", c.windowSize.height)
 	c.canvas.Set("id", "canvas")
 	c.body.Call("appendChild", c.canvas)
 
 	c.ctx = c.canvas.Call("getContext", "2d")
+	c.ctxMask = c.ellipse.Call("getContext", "2d")
+	c.ctxOffscr = c.offscreen.Call("getContext", "2d")
+
 	c.showPupil = false
 	c.showFrame = false
 	c.isBlured = true
-
 	c.blurRadius = 20
 
 	pigo = detector.NewDetector()
@@ -256,13 +267,19 @@ func (c *Canvas) blurFace(src image.Image, scale int) (image.Image, error) {
 
 // drawDetection draws the detected faces and eyes.
 func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
-	for i, det := range dets {
+	var scaleX, scaleY, invScaleX, invScaleY float64
+	var grad js.Value
+
+	for _, det := range dets {
+		leftPupil := pigo.DetectLeftPupil(det)
+		rightPupil := pigo.DetectRightPupil(det)
+
 		if det[3] > 50 {
 			c.ctx.Call("beginPath")
 			c.ctx.Set("lineWidth", 2)
 			c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
 
-			row, col, scale := det[1], det[0], det[2]
+			row, col, scale := det[1], det[0], int(float64(det[2])*1.2)
 
 			if c.isBlured {
 				// Substract the image under the detected face region.
@@ -271,15 +288,32 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 				uint8Arr := js.Global().Get("Uint8Array").New(subimg)
 				js.CopyBytesToGo(imgData, uint8Arr)
 
-				unionMask := image.NewNRGBA(image.Rect(0, 0, scale, scale))
-				// Add to union mask
-				ellipse := ellipse.NewEllipse(
-					row,
-					col,
-					int(float64(scale)*0.8/1.55),
-					int(float64(scale)*0.8/2.2),
-				)
-				draw.Draw(unionMask, unionMask.Bounds(), ellipse, image.Point{X: row - scale/2, Y: col - scale/2}, draw.Over)
+				scx, scy := int(float64(scale)*0.8/1.6), int(float64(scale)*0.8/2.1)
+				rx, ry := scx/2, scy/2
+
+				if rx >= ry {
+					scaleX, invScaleX = 1, 1
+					scaleY = float64(rx) / float64(ry)
+					invScaleY = float64(ry) / float64(rx)
+					grad = c.ctxMask.Call("createRadialGradient", scale/2, float64(scale/2)*invScaleY, 0, scale/2, float64(scale/2)*invScaleY, scx)
+				} else {
+					scaleY, invScaleY = 1, 1
+					scaleX = float64(ry) / float64(rx)
+					invScaleX = float64(rx) / float64(ry)
+					grad = c.ctxMask.Call("createRadialGradient", float64(scale/2)*invScaleX, scale/2, 0, float64(scale/2)*invScaleX, scale/2, scy)
+				}
+				// Calculate the lean angle between the pupils.
+				angle := 1 - (math.Atan2(float64(rightPupil.Col-leftPupil.Col), float64(rightPupil.Row-leftPupil.Row)) * 180 / math.Pi / 90)
+
+				grad.Call("addColorStop", 0.53, "rgba(0, 0, 0, 255)")
+				grad.Call("addColorStop", 0.75, "rgba(255, 255, 255, 0)")
+
+				// Clear the canvas on each frame.
+				c.ctxMask.Call("clearRect", 0, 0, c.windowSize.width, c.windowSize.height)
+				c.ctxMask.Call("setTransform", scaleX, 0, 0, scaleY, 0, 0)
+
+				c.ctxMask.Set("fillStyle", grad)
+				c.ctxMask.Call("fillRect", 0, 0, scale, scale)
 
 				// Converts the buffer array to an image.
 				img := c.pixToImage(imgData, scale)
@@ -288,25 +322,34 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 				newImg := image.NewNRGBA(image.Rect(0, 0, scale, scale))
 				draw.Draw(newImg, newImg.Bounds(), img, newImg.Bounds().Min, draw.Over)
 
-				// Apply the blur effect over the obtained pixel data converted to image.
+				// Blur out the image.
 				blurred, err := c.blurFace(newImg, scale)
 				if err != nil {
 					return err
 				}
-				faceTemplate := image.NewNRGBA(image.Rect(0, 0, scale, scale))
-				draw.Draw(faceTemplate, img.Bounds(), blurred, image.Point{}, draw.Over)
-
-				// Draw the triangled image through the facemask and on top of the source.
-				draw.DrawMask(img.(draw.Image), img.Bounds(), faceTemplate, image.Point{}, unionMask, image.Point{}, draw.Over)
 
 				uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
-				js.CopyBytesToJS(uint8Arr, c.imgToPix(img))
+				js.CopyBytesToJS(uint8Arr, c.imgToPix(blurred))
 
 				uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
 				rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
 
+				// Clear out the canvas on each frame.
+				c.ctxOffscr.Call("clearRect", 0, 0, c.windowSize.width, c.windowSize.height)
 				// Replace the underlying face region with the blured image.
-				c.ctx.Call("putImageData", rawData, row-scale/2, col-scale/2)
+				c.ctxOffscr.Call("putImageData", rawData, 0, 0)
+
+				c.ctxOffscr.Call("save")
+				c.ctxOffscr.Call("translate", scale/2, scale/2)
+				c.ctxOffscr.Call("rotate", js.ValueOf(angle).Float())
+				c.ctxOffscr.Call("translate", -scale/2, -scale/2)
+
+				// Apply the ellipse mask over the source image by using composite operation.
+				c.ctxOffscr.Set("globalCompositeOperation", "destination-atop")
+				c.ctxOffscr.Call("drawImage", c.ellipse, 0, 0)
+				c.ctxOffscr.Call("restore")
+
+				c.ctx.Call("drawImage", c.offscreen, row-scale/2, col-scale/2)
 			}
 
 			if c.showFrame {
@@ -315,14 +358,12 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 			}
 
 			if c.showPupil {
-				leftPupil := pigo.DetectLeftPupil(dets[i])
 				if leftPupil != nil {
 					col, row, scale := leftPupil.Col, leftPupil.Row, leftPupil.Scale/8
 					c.ctx.Call("moveTo", col+int(scale), row)
 					c.ctx.Call("arc", col, row, scale, 0, 2*math.Pi, true)
 				}
 
-				rightPupil := pigo.DetectRightPupil(dets[i])
 				if rightPupil != nil {
 					col, row, scale := rightPupil.Col, rightPupil.Row, rightPupil.Scale/8
 					c.ctx.Call("moveTo", col+int(scale), row)
