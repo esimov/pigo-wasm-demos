@@ -1,9 +1,17 @@
 package pixels
 
 import (
+	"encoding/base64"
+	"fmt"
 	"image"
 	"image/color"
+	"io/ioutil"
+	"log"
 	"math"
+	"net/http"
+	"net/url"
+	"syscall/js"
+	"time"
 )
 
 // ImgToPix converts an image to pixel data.
@@ -52,4 +60,29 @@ func RgbaToGrayscale(data []uint8, dx, dy int) []uint8 {
 		}
 	}
 	return data
+}
+
+// LoadImage load the source image and encodes it to base64 format.
+func LoadImage(path string) string {
+	href := js.Global().Get("location").Get("href")
+	u, err := url.Parse(href.String())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	u.Path = path
+	u.RawQuery = fmt.Sprint(time.Now().UnixNano())
+
+	resp, err := http.Get(u.String())
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	b, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return base64.StdEncoding.EncodeToString(b)
 }

@@ -3,12 +3,12 @@ package faceblur
 import (
 	"fmt"
 	"image"
-	"image/color"
 	"image/draw"
 	"math"
 	"syscall/js"
 
 	"github.com/esimov/pigo-wasm-demos/detector"
+	"github.com/esimov/pigo-wasm-demos/pixels"
 	"github.com/esimov/stackblur-go"
 )
 
@@ -113,7 +113,9 @@ func (c *Canvas) Render() error {
 			// be able to transfer it from Javascript to Go via the js.CopyBytesToGo function.
 			uint8Arr := js.Global().Get("Uint8Array").New(rgba)
 			js.CopyBytesToGo(data, uint8Arr)
-			gray := c.rgbaToGrayscale(data)
+
+			dx, dy := c.windowSize.width, c.windowSize.height
+			gray := pixels.RgbaToGrayscale(data, dx, dy)
 
 			// Reset the data slice to its default values to avoid unnecessary memory allocation.
 			// Otherwise, the GC won't clean up the memory address allocated by this slice
@@ -206,55 +208,6 @@ func (c *Canvas) StartWebcam() (*Canvas, error) {
 	}
 }
 
-// rgbaToGrayscale converts the rgb pixel values to grayscale
-func (c *Canvas) rgbaToGrayscale(data []uint8) []uint8 {
-	rows, cols := c.windowSize.width, c.windowSize.height
-	for r := 0; r < rows; r++ {
-		for c := 0; c < cols; c++ {
-			// gray = 0.2*red + 0.7*green + 0.1*blue
-			data[r*cols+c] = uint8(math.Round(
-				0.2126*float64(data[r*4*cols+4*c+0]) +
-					0.7152*float64(data[r*4*cols+4*c+1]) +
-					0.0722*float64(data[r*4*cols+4*c+2])))
-		}
-	}
-	return data
-}
-
-// pixToImage converts an array buffer to an image.
-func (c *Canvas) pixToImage(pixels []uint8, dim int) image.Image {
-	c.frame = image.NewNRGBA(image.Rect(0, 0, dim, dim))
-	bounds := c.frame.Bounds()
-	dx, dy := bounds.Max.X, bounds.Max.Y
-	col := color.NRGBA{}
-
-	for y := bounds.Min.Y; y < dy; y++ {
-		for x := bounds.Min.X; x < dx*4; x += 4 {
-			col.R = pixels[x+y*dx*4]
-			col.G = pixels[x+y*dx*4+1]
-			col.B = pixels[x+y*dx*4+2]
-			col.A = pixels[x+y*dx*4+3]
-
-			c.frame.SetNRGBA(y, int(x/4), col)
-		}
-	}
-	return c.frame
-}
-
-// imgToPix converts an image to an array buffer
-func (c *Canvas) imgToPix(img image.Image) []uint8 {
-	bounds := img.Bounds()
-	pixels := make([]uint8, 0, bounds.Max.X*bounds.Max.Y*4)
-
-	for i := bounds.Min.X; i < bounds.Max.X; i++ {
-		for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
-			r, g, b, _ := img.At(i, j).RGBA()
-			pixels = append(pixels, uint8(r>>8), uint8(g>>8), uint8(b>>8), 255)
-		}
-	}
-	return pixels
-}
-
 // blurFace blures out the detected face region
 func (c *Canvas) blurFace(src image.Image, scale int) (image.Image, error) {
 	img, err := stackblur.Process(src, c.blurRadius)
@@ -316,7 +269,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 				c.ctxMask.Call("fillRect", 0, 0, scale, scale)
 
 				// Converts the buffer array to an image.
-				img := c.pixToImage(imgData, scale)
+				img := pixels.PixToImage(imgData, scale)
 
 				// Create a new image and draw the webcam frame captures into it.
 				newImg := image.NewNRGBA(image.Rect(0, 0, scale, scale))
@@ -329,7 +282,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 				}
 
 				uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
-				js.CopyBytesToJS(uint8Arr, c.imgToPix(blurred))
+				js.CopyBytesToJS(uint8Arr, pixels.ImgToPix(blurred))
 
 				uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
 				rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)

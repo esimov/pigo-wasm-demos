@@ -1,17 +1,12 @@
 package masquerade
 
 import (
-	"encoding/base64"
 	"fmt"
-	"io/ioutil"
-	"log"
 	"math"
-	"net/http"
-	"net/url"
 	"syscall/js"
-	"time"
 
 	"github.com/esimov/pigo-wasm-demos/detector"
+	"github.com/esimov/pigo-wasm-demos/pixels"
 )
 
 // Canvas struct holds the Javascript objects needed for the Canvas creation
@@ -107,7 +102,7 @@ func (c *Canvas) Render() {
 	c.done = make(chan struct{})
 
 	for i, file := range sunglasses {
-		img := c.loadImage(file)
+		img := pixels.LoadImage(file)
 		eyemasks[i] = js.Global().Call("eval", "new Image()")
 		eyemasks[i].Set("src", "data:image/png;base64,"+img)
 	}
@@ -115,7 +110,7 @@ func (c *Canvas) Render() {
 	eyeMaskHeight = js.ValueOf(eyemasks[0].Get("naturalHeight")).Int()
 
 	for i, file := range masks {
-		img := c.loadImage(file)
+		img := pixels.LoadImage(file)
 		mouthmasks[i] = js.Global().Call("eval", "new Image()")
 		mouthmasks[i].Set("src", "data:image/png;base64,"+img)
 	}
@@ -136,7 +131,9 @@ func (c *Canvas) Render() {
 				// be able to transfer it from Javascript to Go via the js.CopyBytesToGo function.
 				uint8Arr := js.Global().Get("Uint8Array").New(rgba)
 				js.CopyBytesToGo(data, uint8Arr)
-				pixels := c.rgbaToGrayscale(data)
+
+				dx, dy := c.windowSize.width, c.windowSize.height
+				pixels := pixels.RgbaToGrayscale(data, dx, dy)
 
 				// Reset the data slice to its default values to avoid unnecessary memory allocation.
 				// Otherwise, the GC won't clean up the memory address allocated by this slice
@@ -221,21 +218,6 @@ func (c *Canvas) StartWebcam() (*Canvas, error) {
 	case err := <-c.errCh:
 		return nil, err
 	}
-}
-
-// rgbaToGrayscale converts the rgb pixel values to grayscale
-func (c *Canvas) rgbaToGrayscale(data []uint8) []uint8 {
-	rows, cols := c.windowSize.width, c.windowSize.height
-	for r := 0; r < rows; r++ {
-		for c := 0; c < cols; c++ {
-			// gray = 0.2*red + 0.7*green + 0.1*blue
-			data[r*cols+c] = uint8(math.Round(
-				0.2126*float64(data[r*4*cols+4*c+0]) +
-					0.7152*float64(data[r*4*cols+4*c+1]) +
-					0.0722*float64(data[r*4*cols+4*c+2])))
-		}
-	}
-	return data
 }
 
 // drawDetection draws the detected faces and eyes.
@@ -406,26 +388,4 @@ func (c *Canvas) Log(args ...interface{}) {
 func (c *Canvas) Alert(args ...interface{}) {
 	alert := c.window.Get("alert")
 	alert.Invoke(args...)
-}
-
-// loadImage load the source image and encodes it to base64 format.
-func (c *Canvas) loadImage(path string) string {
-	href := js.Global().Get("location").Get("href")
-	u, err := url.Parse(href.String())
-	if err != nil {
-		log.Fatal(err)
-	}
-	u.Path = path
-	u.RawQuery = fmt.Sprint(time.Now().UnixNano())
-
-	resp, err := http.Get(u.String())
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer resp.Body.Close()
-	b, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return base64.StdEncoding.EncodeToString(b)
 }
