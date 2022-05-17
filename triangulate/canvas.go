@@ -3,12 +3,11 @@ package triangulate
 import (
 	"fmt"
 	"image"
-	"image/draw"
+	"math"
 	"sync"
 	"syscall/js"
 
 	"github.com/esimov/pigo-wasm-demos/detector"
-	ellipse "github.com/esimov/pigo-wasm-demos/draw"
 	"github.com/esimov/pigo-wasm-demos/pixels"
 	triangle "github.com/esimov/triangle/v2"
 	"golang.org/x/sync/errgroup"
@@ -29,10 +28,14 @@ type Canvas struct {
 	windowSize struct{ width, height int }
 
 	// Canvas properties
-	canvas   js.Value
-	ctx      js.Value
-	reqID    js.Value
-	renderer js.Func
+	canvas    js.Value
+	ellipse   js.Value
+	offscreen js.Value
+	ctx       js.Value
+	ctxMask   js.Value
+	ctxOffscr js.Value
+	reqID     js.Value
+	renderer  js.Func
 
 	// Webcam properties
 	navigator js.Value
@@ -68,7 +71,7 @@ const (
 	maxStrokeWidth = 4
 )
 
-var det *detector.Detector
+var pigo *detector.Detector
 
 // NewCanvas creates and initializes the new Canvas element
 func NewCanvas() *Canvas {
@@ -81,12 +84,22 @@ func NewCanvas() *Canvas {
 	c.windowSize.height = 480
 
 	c.canvas = c.doc.Call("createElement", "canvas")
+	c.ellipse = c.doc.Call("createElement", "canvas")
+	c.offscreen = c.doc.Call("createElement", "canvas")
+
 	c.canvas.Set("width", c.windowSize.width)
 	c.canvas.Set("height", c.windowSize.height)
 	c.canvas.Set("id", "canvas")
+	c.ellipse.Set("width", c.windowSize.width)
+	c.ellipse.Set("height", c.windowSize.height)
+	c.offscreen.Set("width", c.windowSize.width)
+	c.offscreen.Set("height", c.windowSize.height)
 	c.body.Call("appendChild", c.canvas)
 
 	c.ctx = c.canvas.Call("getContext", "2d")
+	c.ctxMask = c.ellipse.Call("getContext", "2d")
+	c.ctxOffscr = c.offscreen.Call("getContext", "2d")
+
 	c.showFrame = false
 	c.isSolid = false
 	c.isGrayScaled = false
@@ -97,7 +110,7 @@ func NewCanvas() *Canvas {
 	c.pointsThreshold = 10
 	c.pointRate = 0.075
 
-	det = detector.NewDetector()
+	pigo = detector.NewDetector()
 
 	c.processor = &triangle.Processor{
 		BlurRadius:      2,
@@ -127,7 +140,7 @@ func (c *Canvas) Render() error {
 	var data = make([]byte, width*height*4)
 	c.done = make(chan struct{})
 
-	err := det.UnpackCascades()
+	err := pigo.UnpackCascades()
 	if err != nil {
 		return err
 	}
@@ -154,7 +167,7 @@ func (c *Canvas) Render() error {
 			// and the memory will keep up increasing by each iteration.
 			data = make([]byte, len(data))
 
-			res := det.DetectFaces(gray, height, width)
+			res := pigo.DetectFaces(gray, height, width)
 			if err := c.drawDetection(res); err != nil {
 				return err
 			}
@@ -248,9 +261,15 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 
 	c.triangle = &triangle.Image{*c.processor}
 
+	var scaleX, scaleY, invScaleX, invScaleY float64
+	var grad js.Value
+
 	for _, det := range dets {
 		det := det
 		c.g.Go(func() error {
+			leftPupil := pigo.DetectLeftPupil(det)
+			rightPupil := pigo.DetectRightPupil(det)
+
 			if det[3] > 50 {
 				c.ctx.Call("beginPath")
 				c.ctx.Set("lineWidth", 2)
@@ -263,32 +282,73 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 				uint8Arr := js.Global().Get("Uint8Array").New(subimg)
 				js.CopyBytesToGo(imgData, uint8Arr)
 
-				unionMask := image.NewNRGBA(image.Rect(0, 0, scale, scale))
-				// Add to union mask
-				ellipse := ellipse.NewEllipse(
-					row,
-					col,
-					int(float64(scale)*0.8/1.6),
-					int(float64(scale)*0.8/2),
-				)
 				// Draw the ellipse mask.
+				{
+					scx, scy := int(float64(scale)*0.8/1.6), int(float64(scale)*0.8/2.0)
+					rx, ry := scx/2, scy/2
+
+					if rx >= ry {
+						scaleX, invScaleX = 1, 1
+						scaleY = float64(rx) / float64(ry)
+						invScaleY = float64(ry) / float64(rx)
+						grad = c.ctxMask.Call("createRadialGradient", scale/2, float64(scale/2)*invScaleY, 0, scale/2, float64(scale/2)*invScaleY, scx)
+					} else {
+						scaleY, invScaleY = 1, 1
+						scaleX = float64(ry) / float64(rx)
+						invScaleX = float64(rx) / float64(ry)
+						grad = c.ctxMask.Call("createRadialGradient", float64(scale/2)*invScaleX, scale/2, 0, float64(scale/2)*invScaleX, scale/2, scy)
+					}
+
+					grad.Call("addColorStop", 0.6, "rgba(0, 0, 0, 255)")
+					grad.Call("addColorStop", 0.8, "rgba(255, 255, 255, 0)")
+
+					// Clear the canvas on each frame.
+					c.ctxMask.Call("clearRect", 0, 0, c.windowSize.width, c.windowSize.height)
+					c.ctxMask.Call("setTransform", scaleX, 0, 0, scaleY, 0, 0)
+
+					c.ctxMask.Set("fillStyle", grad)
+					c.ctxMask.Call("fillRect", 0, 0, scale, scale)
+				}
+
 				c.lock.Lock()
-				draw.Draw(unionMask, unionMask.Bounds(), ellipse, image.Point{X: row - scale/2, Y: col - scale/2}, draw.Over)
-				c.lock.Unlock()
 
 				// Triangulate the detected face region.
-				buffer, err := c.triangulate(unionMask, imgData, scale)
+				buffer, err := c.triangulate(imgData, scale)
 				if err != nil {
 					return err
 				}
-				uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
-				js.CopyBytesToJS(uint8Arr, buffer)
 
-				uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
-				rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
+				c.lock.Unlock()
 
-				// Replace the underlying face region with the triangulated image.
-				c.ctx.Call("putImageData", rawData, row-scale/2, col-scale/2)
+				// Draw the triangulated image into the ellipse gradient using composite operation.
+				{
+					uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
+					js.CopyBytesToJS(uint8Arr, buffer)
+
+					uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
+					rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
+
+					// Clear out the canvas on each frame.
+					c.ctxOffscr.Call("clearRect", 0, 0, c.windowSize.width, c.windowSize.height)
+					// Replace the underlying face region with the blurred image.
+					c.ctxOffscr.Call("putImageData", rawData, 0, 0)
+
+					// Calculate the lean angle between the pupils.
+					angle := 1 - (math.Atan2(float64(rightPupil.Col-leftPupil.Col), float64(rightPupil.Row-leftPupil.Row)) * 180 / math.Pi / 90)
+
+					c.ctxOffscr.Call("save")
+					c.ctxOffscr.Call("translate", scale/2, scale/2)
+					c.ctxOffscr.Call("rotate", js.ValueOf(angle).Float())
+					c.ctxOffscr.Call("translate", -scale/2, -scale/2)
+
+					// Apply the ellipse mask over the source image by using composite operation.
+					c.ctxOffscr.Set("globalCompositeOperation", "destination-atop")
+					c.ctxOffscr.Call("drawImage", c.ellipse, 0, 0)
+					c.ctxOffscr.Call("restore")
+
+					// Combine all the layers.
+					c.ctx.Call("drawImage", c.offscreen, row-scale/2, col-scale/2)
+				}
 
 				if c.showFrame {
 					c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
@@ -305,30 +365,17 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 }
 
 // triangulate triangulates the detected face region
-func (c *Canvas) triangulate(unionMask *image.NRGBA, data []uint8, scale int) ([]uint8, error) {
-	faceTemplate := image.NewNRGBA(image.Rect(0, 0, scale, scale))
+func (c *Canvas) triangulate(data []uint8, scale int) ([]uint8, error) {
 	// Converts the buffer array to an image.
 	img := pixels.PixToImage(data, scale)
 
-	// Create a new image and draw the webcam frame captures into it.
-	newImg := image.NewNRGBA(image.Rect(0, 0, scale, scale))
-	draw.Draw(newImg, newImg.Bounds(), img, newImg.Bounds().Min, draw.Over)
-
 	// Call the face triangulation algorithm.
-	triangled, _, _, err := c.triangle.Draw(newImg, *c.processor, func() {})
+	triangled, _, _, err := c.triangle.Draw(img, *c.processor, func() {})
 	if err != nil {
 		return nil, err
 	}
 
-	// Paste triangled image into the face template.
-	c.lock.Lock()
-	draw.Draw(faceTemplate, img.Bounds(), triangled, image.Point{}, draw.Over)
-	c.lock.Unlock()
-
-	// Draw the triangled image through the facemask and on top of the source.
-	draw.DrawMask(img.(draw.Image), img.Bounds(), faceTemplate, image.Point{}, unionMask, image.Point{}, draw.Over)
-
-	return pixels.ImgToPix(img), nil
+	return pixels.ImgToPix(triangled), nil
 }
 
 // detectKeyPress listen for the keypress event and retrieves the key code.
