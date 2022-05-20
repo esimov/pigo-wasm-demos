@@ -3,6 +3,7 @@ package triangulate
 import (
 	"fmt"
 	"image"
+	"image/draw"
 	"math"
 	"sync"
 	"syscall/js"
@@ -80,8 +81,8 @@ func NewCanvas() *Canvas {
 	c.doc = c.window.Get("document")
 	c.body = c.doc.Get("body")
 
-	c.windowSize.width = 640
-	c.windowSize.height = 480
+	c.windowSize.width = 768
+	c.windowSize.height = 576
 
 	c.canvas = c.doc.Call("createElement", "canvas")
 	c.ellipse = c.doc.Call("createElement", "canvas")
@@ -150,7 +151,7 @@ func (c *Canvas) Render() error {
 			c.window.Get("stats").Call("begin")
 
 			c.reqID = c.window.Call("requestAnimationFrame", c.renderer)
-			// Draw the webcam frame to the canvas element
+			// Draw the webcam frame into the canvas element
 			c.ctx.Call("drawImage", c.video, 0, 0)
 			rgba := c.ctx.Call("getImageData", 0, 0, width, height).Get("data")
 
@@ -159,12 +160,11 @@ func (c *Canvas) Render() error {
 			uint8Arr := js.Global().Get("Uint8Array").New(rgba)
 			js.CopyBytesToGo(data, uint8Arr)
 
-			dx, dy := c.windowSize.width, c.windowSize.height
-			gray := pixels.RgbaToGrayscale(data, dx, dy)
+			gray := pixels.RgbaToGrayscale(data, width, height)
 
 			// Reset the data slice to its default values to avoid unnecessary memory allocation.
 			// Otherwise, the GC won't clean up the memory address allocated by this slice
-			// and the memory will keep up increasing by each iteration.
+			// and the memory will keep increasing by each iteration.
 			data = make([]byte, len(data))
 
 			res := pigo.DetectFaces(gray, height, width)
@@ -313,7 +313,8 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 				c.lock.Lock()
 
 				// Triangulate the detected face region.
-				buffer, err := c.triangulate(imgData, scale)
+				rect := image.Rect(0, 0, scale, scale)
+				buffer, err := c.triangulate(imgData, rect)
 				if err != nil {
 					return err
 				}
@@ -365,9 +366,9 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 }
 
 // triangulate triangulates the detected face region
-func (c *Canvas) triangulate(data []uint8, scale int) ([]uint8, error) {
+func (c *Canvas) triangulate(data []uint8, size image.Rectangle) ([]uint8, error) {
 	// Converts the buffer array to an image.
-	img := pixels.PixToImage(data, scale)
+	img := pixels.PixToImage(data, size)
 
 	// Call the face triangulation algorithm.
 	triangled, _, _, err := c.triangle.Draw(img, *c.processor, func() {})
@@ -375,7 +376,9 @@ func (c *Canvas) triangulate(data []uint8, scale int) ([]uint8, error) {
 		return nil, err
 	}
 
-	return pixels.ImgToPix(triangled), nil
+	dst := image.NewNRGBA(triangled.Bounds())
+	draw.Draw(dst, triangled.Bounds(), triangled, image.Point{}, draw.Over)
+	return pixels.ImgToPix(dst), nil
 }
 
 // detectKeyPress listen for the keypress event and retrieves the key code.
