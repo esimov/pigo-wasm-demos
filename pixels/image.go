@@ -14,23 +14,39 @@ import (
 	"time"
 )
 
-// ImgToPix converts an image to pixel data.
-func ImgToPix(img image.Image) []uint8 {
-	bounds := img.Bounds()
-	pixels := make([]uint8, 0, bounds.Max.X*bounds.Max.Y*4)
+// ImgToPix converts an image to an 1D uint8 pixel array.
+// In order to preserve the color information per pixel we need to reconstruct the array to a specific format.
+func ImgToPix(src image.NRGBA) []uint8 {
+	size := src.Bounds().Size()
+	width, height := size.X, size.Y
+	pixels := make([][][3]uint8, height)
 
-	for i := bounds.Min.X; i < bounds.Max.X; i++ {
-		for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
-			r, g, b, _ := img.At(i, j).RGBA()
-			pixels = append(pixels, uint8(r>>8), uint8(g>>8), uint8(b>>8), 255)
+	for y := 0; y < height; y++ {
+		row := make([][3]uint8, width)
+		for x := 0; x < width; x++ {
+			idx := (y*width + x) * 4
+			pix := src.Pix[idx : idx+4]
+			row[x] = [3]uint8{uint8(pix[0]), uint8(pix[1]), uint8(pix[2])}
+		}
+		pixels[y] = row
+	}
+
+	// Flatten the 3d array to 1D.
+	flattened := []uint8{}
+	for x := 0; x < len(pixels); x++ {
+		for y := 0; y < len(pixels[x]); y++ {
+			r := pixels[x][y][0]
+			g := pixels[x][y][1]
+			b := pixels[x][y][2]
+			flattened = append(flattened, r, g, b, 255)
 		}
 	}
-	return pixels
+	return flattened
 }
 
 // PixToImage converts the pixel data to an image.
-func PixToImage(pixels []uint8, dim int) image.Image {
-	img := image.NewNRGBA(image.Rect(0, 0, dim, dim))
+func PixToImage(pixels []uint8, rect image.Rectangle) image.Image {
+	img := image.NewNRGBA(rect)
 	bounds := img.Bounds()
 	dx, dy := bounds.Max.X, bounds.Max.Y
 	col := color.NRGBA{}
@@ -42,10 +58,36 @@ func PixToImage(pixels []uint8, dim int) image.Image {
 			col.B = pixels[x+y*dx*4+2]
 			col.A = pixels[x+y*dx*4+3]
 
-			img.SetNRGBA(y, int(x/4), col)
+			img.SetNRGBA(int(x/4), y, col)
 		}
 	}
 	return img
+}
+
+// RotateImg rotates the image per pixel level to a certain degree and returns an image data.
+func RotateImg(img image.NRGBA, angle float64) []uint8 {
+	bounds := img.Bounds()
+	dx, dy := bounds.Max.X, bounds.Max.Y
+	col := color.NRGBA{}
+
+	for x := bounds.Min.X; x < dx; x++ {
+		for y := bounds.Min.Y; y < dy; y++ {
+			x0, y0 := dx/2, dy/2
+			xoff, yoff := x-x0, y-y0
+			rad := angle * math.Pi / 180
+			newX := int(math.Cos(rad)*float64(xoff) + math.Sin(rad)*float64(yoff) + float64(x0))
+			newY := int(math.Cos(rad)*float64(yoff) - math.Sin(rad)*float64(xoff) + float64(y0))
+
+			pos := x + (y * dx)
+			col.R = img.Pix[pos*4]
+			col.G = img.Pix[pos*4+1]
+			col.B = img.Pix[pos*4+2]
+			col.A = img.Pix[pos*4+3]
+
+			img.SetNRGBA(newX, newY, col)
+		}
+	}
+	return ImgToPix(img)
 }
 
 // RgbaToGrayscale converts the pixel data to grayscale mode.
