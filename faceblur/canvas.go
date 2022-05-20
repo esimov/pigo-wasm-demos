@@ -3,7 +3,6 @@ package faceblur
 import (
 	"fmt"
 	"image"
-	"image/draw"
 	"math"
 	"syscall/js"
 
@@ -105,7 +104,7 @@ func (c *Canvas) Render() error {
 			c.window.Get("stats").Call("begin")
 
 			c.reqID = c.window.Call("requestAnimationFrame", c.renderer)
-			// Draw the webcam frame to the canvas element
+			// Draw the webcam frame into the canvas element
 			c.ctx.Call("drawImage", c.video, 0, 0)
 			rgba := c.ctx.Call("getImageData", 0, 0, width, height).Get("data")
 
@@ -114,17 +113,16 @@ func (c *Canvas) Render() error {
 			uint8Arr := js.Global().Get("Uint8Array").New(rgba)
 			js.CopyBytesToGo(data, uint8Arr)
 
-			dx, dy := c.windowSize.width, c.windowSize.height
-			gray := pixels.RgbaToGrayscale(data, dx, dy)
+			gray := pixels.RgbaToGrayscale(data, width, height)
 
 			// Reset the data slice to its default values to avoid unnecessary memory allocation.
 			// Otherwise, the GC won't clean up the memory address allocated by this slice
-			// and the memory will keep up increasing by each iteration.
+			// and the memory will keep increasing by each iteration.
 			data = make([]byte, len(data))
 
 			res := pigo.DetectFaces(gray, height, width)
 			if len(res) > 0 {
-				if err := c.drawDetection(data, res); err != nil {
+				if err := c.drawDetection(res); err != nil {
 					return err
 				}
 			}
@@ -209,7 +207,7 @@ func (c *Canvas) StartWebcam() (*Canvas, error) {
 }
 
 // blurFace blures out the detected face region
-func (c *Canvas) blurFace(src image.Image, scale int) (image.Image, error) {
+func (c *Canvas) blurFace(src image.Image) (*image.NRGBA, error) {
 	img, err := stackblur.Process(src, c.blurRadius)
 	if err != nil {
 		return nil, err
@@ -219,7 +217,7 @@ func (c *Canvas) blurFace(src image.Image, scale int) (image.Image, error) {
 }
 
 // drawDetection draws the detected faces and eyes.
-func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
+func (c *Canvas) drawDetection(dets [][]int) error {
 	var scaleX, scaleY, invScaleX, invScaleY float64
 	var grad js.Value
 
@@ -255,8 +253,6 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 					invScaleX = float64(rx) / float64(ry)
 					grad = c.ctxMask.Call("createRadialGradient", float64(scale/2)*invScaleX, scale/2, 0, float64(scale/2)*invScaleX, scale/2, scy)
 				}
-				// Calculate the lean angle between the pupils.
-				angle := 1 - (math.Atan2(float64(rightPupil.Col-leftPupil.Col), float64(rightPupil.Row-leftPupil.Row)) * 180 / math.Pi / 90)
 
 				grad.Call("addColorStop", 0.53, "rgba(0, 0, 0, 255)")
 				grad.Call("addColorStop", 0.75, "rgba(255, 255, 255, 0)")
@@ -269,20 +265,17 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 				c.ctxMask.Call("fillRect", 0, 0, scale, scale)
 
 				// Converts the buffer array to an image.
-				img := pixels.PixToImage(imgData, scale)
-
-				// Create a new image and draw the webcam frame captures into it.
-				newImg := image.NewNRGBA(image.Rect(0, 0, scale, scale))
-				draw.Draw(newImg, newImg.Bounds(), img, newImg.Bounds().Min, draw.Over)
+				rect := image.Rect(0, 0, scale, scale)
+				img := pixels.PixToImage(imgData, rect)
 
 				// Blur out the image.
-				blurred, err := c.blurFace(newImg, scale)
+				blurred, err := c.blurFace(img)
 				if err != nil {
 					return err
 				}
 
 				uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
-				js.CopyBytesToJS(uint8Arr, pixels.ImgToPix(blurred))
+				js.CopyBytesToJS(uint8Arr, pixels.ImgToPix(*blurred))
 
 				uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
 				rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
@@ -291,6 +284,9 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 				c.ctxOffscr.Call("clearRect", 0, 0, c.windowSize.width, c.windowSize.height)
 				// Replace the underlying face region with the blurred image.
 				c.ctxOffscr.Call("putImageData", rawData, 0, 0)
+
+				// Calculate the lean angle between the eyes.
+				angle := 1 - (math.Atan2(float64(rightPupil.Col-leftPupil.Col), float64(rightPupil.Row-leftPupil.Row)) * 180 / math.Pi / 90)
 
 				c.ctxOffscr.Call("save")
 				c.ctxOffscr.Call("translate", scale/2, scale/2)
