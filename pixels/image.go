@@ -16,7 +16,7 @@ import (
 
 // ImgToPix converts an image to an 1D uint8 pixel array.
 // In order to preserve the color information per pixel we need to reconstruct the array to a specific format.
-func ImgToPix(src image.NRGBA) []uint8 {
+func ImgToPix(src *image.NRGBA) []uint8 {
 	size := src.Bounds().Size()
 	width, height := size.X, size.Y
 	pixels := make([][][3]uint8, height)
@@ -65,7 +65,7 @@ func PixToImage(pixels []uint8, rect image.Rectangle) image.Image {
 }
 
 // RotateImg rotates the image per pixel level to a certain degree and returns an image data.
-func RotateImg(img image.NRGBA, angle float64) []uint8 {
+func RotateImg(img *image.NRGBA, angle float64) []uint8 {
 	bounds := img.Bounds()
 	dx, dy := bounds.Max.X, bounds.Max.Y
 	col := color.NRGBA{}

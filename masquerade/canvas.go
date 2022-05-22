@@ -132,8 +132,7 @@ func (c *Canvas) Render() {
 				uint8Arr := js.Global().Get("Uint8Array").New(rgba)
 				js.CopyBytesToGo(data, uint8Arr)
 
-				dx, dy := c.windowSize.width, c.windowSize.height
-				pixels := pixels.RgbaToGrayscale(data, dx, dy)
+				pixels := pixels.RgbaToGrayscale(data, width, height)
 
 				// Reset the data slice to its default values to avoid unnecessary memory allocation.
 				// Otherwise, the GC won't clean up the memory address allocated by this slice
