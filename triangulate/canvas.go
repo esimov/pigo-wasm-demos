@@ -378,6 +378,7 @@ func (c *Canvas) triangulate(data []uint8, size image.Rectangle) ([]uint8, error
 
 	dst := image.NewNRGBA(triangled.Bounds())
 	draw.Draw(dst, triangled.Bounds(), triangled, image.Point{}, draw.Over)
+
 	return pixels.ImgToPix(dst), nil
 }
 

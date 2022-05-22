@@ -102,7 +102,11 @@ func (c *Canvas) Render() {
 	c.done = make(chan struct{})
 
 	for i, file := range sunglasses {
-		img := pixels.LoadImage(file)
+		img, err := pixels.LoadImage(file)
+		if err != nil {
+			c.Alert(err)
+			return
+		}
 		eyemasks[i] = js.Global().Call("eval", "new Image()")
 		eyemasks[i].Set("src", "data:image/png;base64,"+img)
 	}
@@ -110,7 +114,11 @@ func (c *Canvas) Render() {
 	eyeMaskHeight = js.ValueOf(eyemasks[0].Get("naturalHeight")).Int()
 
 	for i, file := range masks {
-		img := pixels.LoadImage(file)
+		img, err := pixels.LoadImage(file)
+		if err != nil {
+			c.Alert(err)
+			return
+		}
 		mouthmasks[i] = js.Global().Call("eval", "new Image()")
 		mouthmasks[i].Set("src", "data:image/png;base64,"+img)
 	}

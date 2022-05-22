@@ -3,6 +3,7 @@ package facemask
 import (
 	"fmt"
 	"image"
+	"image/draw"
 	"math"
 	"sync"
 	"syscall/js"
@@ -147,9 +148,10 @@ func (c *Canvas) Render() error {
 	var data = make([]byte, width*height*4)
 	c.done = make(chan struct{})
 
-	img := pixels.LoadImage("/images/surgical-mask.png")
-	mask = js.Global().Call("eval", "new Image()")
-	mask.Set("src", "data:image/png;base64,"+img)
+	if img, err := pixels.LoadImage("/images/surgical-mask.png"); err != nil {
+		mask = js.Global().Call("eval", "new Image()")
+		mask.Set("src", "data:image/png;base64,"+img)
+	}
 
 	maskWidth = js.ValueOf(mask.Get("naturalWidth")).Int()
 	maskHeight = js.ValueOf(mask.Get("naturalHeight")).Int()
@@ -174,8 +176,7 @@ func (c *Canvas) Render() error {
 			uint8Arr := js.Global().Get("Uint8Array").New(rgba)
 			js.CopyBytesToGo(data, uint8Arr)
 
-			dx, dy := c.windowSize.width, c.windowSize.height
-			gray := pixels.RgbaToGrayscale(data, dx, dy)
+			gray := pixels.RgbaToGrayscale(data, width, height)
 
 			// Reset the data slice to its default values to avoid unnecessary memory allocation.
 			// Otherwise, the GC won't clean up the memory address allocated by this slice
@@ -264,16 +265,20 @@ func (c *Canvas) StartWebcam() (*Canvas, error) {
 }
 
 // triangulate triangulates the image passed as pixel data
-func (c *Canvas) triangulate(data []uint8, dets []int) ([]uint8, error) {
+func (c *Canvas) triangulate(data []uint8, size image.Rectangle) ([]uint8, error) {
 	// Converts the buffer array to an image.
-	img := pixels.PixToImage(data, int(float64(dets[2])))
+	img := pixels.PixToImage(data, size)
 
 	// Call the face triangulation algorithm.
 	res, _, _, err := c.triangle.Draw(img, *c.processor, func() {})
 	if err != nil {
 		return nil, err
 	}
-	return pixels.ImgToPix(res), nil
+
+	dst := image.NewNRGBA(res.Bounds())
+	draw.Draw(dst, res.Bounds(), res, image.Point{}, draw.Over)
+
+	return pixels.ImgToPix(dst), nil
 }
 
 // drawDetection draws the detected faces and eyes.
@@ -338,7 +343,8 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 
 					// Triangulate the facemask part.
 					c.lock.Lock()
-					triangle, err := c.triangulate(imgData, det)
+					rect := image.Rect(0, 0, scale, scale)
+					triangle, err := c.triangulate(imgData, rect)
 					if err != nil {
 						return err
 					}

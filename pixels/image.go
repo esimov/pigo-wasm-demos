@@ -6,7 +6,6 @@ import (
 	"image"
 	"image/color"
 	"io/ioutil"
-	"log"
 	"math"
 	"net/http"
 	"net/url"
@@ -105,11 +104,11 @@ func RgbaToGrayscale(data []uint8, dx, dy int) []uint8 {
 }
 
 // LoadImage load the source image and encodes it to base64 format.
-func LoadImage(path string) string {
+func LoadImage(path string) (string, error) {
 	href := js.Global().Get("location").Get("href")
 	u, err := url.Parse(href.String())
 	if err != nil {
-		log.Fatal(err)
+		return "", err
 	}
 
 	u.Path = path
@@ -117,14 +116,14 @@ func LoadImage(path string) string {
 
 	resp, err := http.Get(u.String())
 	if err != nil {
-		log.Fatal(err)
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	b, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Fatal(err)
+		return "", err
 	}
 
-	return base64.StdEncoding.EncodeToString(b)
+	return base64.StdEncoding.EncodeToString(b), nil
 }
