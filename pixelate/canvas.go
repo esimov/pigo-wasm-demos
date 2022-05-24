@@ -217,9 +217,9 @@ func (c *Canvas) StartWebcam() (*Canvas, error) {
 }
 
 // pixelate pixelates the detected face region
-func (c *Canvas) pixelate(data []uint8, size image.Rectangle, noiseLevel int) []uint8 {
+func (c *Canvas) pixelate(data []uint8, rect image.Rectangle, noiseLevel int) []uint8 {
 	// Converts the array buffer to an image
-	img := pixels.PixToImage(data, size)
+	img := pixels.PixToImage(data, rect)
 
 	// Quantize the substracted image in order to reduce the number of colors.
 	// This will create a new pixelated subtype image.
@@ -245,7 +245,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 			c.ctx.Set("lineWidth", 2)
 			c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
 
-			row, col, scale := det[1], det[0], det[2]
+			row, col, scale := det[1], det[0], int(float64(det[2])*1.1)
 
 			if c.showFrame {
 				c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
@@ -256,9 +256,8 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 			uint8Arr := js.Global().Get("Uint8Array").New(subimg)
 			js.CopyBytesToGo(imgData, uint8Arr)
 
-			// Draw the ellipse mask.
-			{
-				scx, scy := int(float64(scale)*0.8/1.5), int(float64(scale)*0.8/2.0)
+			{ // Draw the ellipse mask.
+				scx, scy := int(float64(scale)*0.8/1.5), int(float64(scale)*0.8/2.1)
 				rx, ry := scx/2, scy/2
 
 				if rx >= ry {
@@ -273,8 +272,8 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 					grad = c.ctxMask.Call("createRadialGradient", float64(scale/2)*invScaleX, scale/2, 0, float64(scale/2)*invScaleX, scale/2, scy)
 				}
 
-				grad.Call("addColorStop", 0.67, "rgba(0, 0, 0, 255)")
-				grad.Call("addColorStop", 0.82, "rgba(255, 255, 255, 0)")
+				grad.Call("addColorStop", 0.55, "rgba(0, 0, 0, 255)")
+				grad.Call("addColorStop", 0.7, "rgba(255, 255, 255, 0)")
 
 				// Clear the canvas on each frame.
 				c.ctxMask.Call("clearRect", 0, 0, c.windowSize.width, c.windowSize.height)
@@ -284,8 +283,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 				c.ctxMask.Call("fillRect", 0, 0, float64(scale)*invScaleX, float64(scale)*invScaleY)
 			}
 
-			// Draw the pixelated image into the ellipse gradient using composite operation.
-			{
+			{ // Draw the pixelated image into the ellipse gradient using composite operation.
 				rect := image.Rect(0, 0, scale, scale)
 				buffer := c.pixelate(imgData, rect, c.noiseLevel)
 
