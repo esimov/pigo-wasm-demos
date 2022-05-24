@@ -246,7 +246,6 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 			c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
 
 			row, col, scale := det[1], det[0], det[2]
-			//scale = int(float64(scale) * 0.9)
 
 			if c.showFrame {
 				c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
@@ -259,7 +258,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 
 			// Draw the ellipse mask.
 			{
-				scx, scy := int(float64(scale)*0.8/1.6), int(float64(scale)*0.8/2.0)
+				scx, scy := int(float64(scale)*0.8/1.5), int(float64(scale)*0.8/2.0)
 				rx, ry := scx/2, scy/2
 
 				if rx >= ry {
@@ -282,7 +281,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 				c.ctxMask.Call("setTransform", scaleX, 0, 0, scaleY, 0, 0)
 
 				c.ctxMask.Set("fillStyle", grad)
-				c.ctxMask.Call("fillRect", 0, 0, scale, scale)
+				c.ctxMask.Call("fillRect", 0, 0, float64(scale)*invScaleX, float64(scale)*invScaleY)
 			}
 
 			// Draw the pixelated image into the ellipse gradient using composite operation.
