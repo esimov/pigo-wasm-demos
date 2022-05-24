@@ -70,11 +70,13 @@ func NewCanvas() *Canvas {
 	c.canvas.Set("width", c.windowSize.width)
 	c.canvas.Set("height", c.windowSize.height)
 	c.canvas.Set("id", "canvas")
+	c.body.Call("appendChild", c.canvas)
+
 	c.ellipse.Set("width", c.windowSize.width)
 	c.ellipse.Set("height", c.windowSize.height)
+
 	c.offscreen.Set("width", c.windowSize.width)
 	c.offscreen.Set("height", c.windowSize.height)
-	c.body.Call("appendChild", c.canvas)
 
 	c.ctx = c.canvas.Call("getContext", "2d")
 	c.ctxMask = c.ellipse.Call("getContext", "2d")
@@ -275,7 +277,7 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 				}
 
 				uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
-				js.CopyBytesToJS(uint8Arr, pixels.ImgToPix(*blurred))
+				js.CopyBytesToJS(uint8Arr, pixels.ImgToPix(blurred))
 
 				uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
 				rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
