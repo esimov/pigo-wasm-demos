@@ -9,17 +9,14 @@ import (
 	"sort"
 )
 
+// SubImager is a wrapper implementing the SubImage method from the image package.
+type SubImager interface {
+	SubImage(r image.Rectangle) image.Image
+}
+
 // Interface which implements the Quantize method.
 type Quantizer interface {
 	Quantize(image.Image, draw.Image, int, bool, bool) image.Image
-}
-
-// Image quantization method. Returns a paletted image.
-// We need to use type assertion to match the interface returning type.
-func (q Quant) Quantize(img image.Image, nq int) image.Image {
-	qz := newQuantizer(img, nq)        // set up a work space
-	qz.cluster()                       // cluster pixels by color
-	return qz.Paletted().(image.Image) // generate paletted image from clusters
 }
 
 // A workspace with members that can be accessed by methods.
@@ -37,15 +34,30 @@ type cluster struct {
 	chRange  uint32  // value range (vmax-vmin) of widest channel
 }
 
-type point struct{ x, y int }
-type chValues []uint32
-type queue []*cluster
+type (
+	point    struct{ x, y int }
+	chValues []uint32
+	queue    []*cluster
+)
 
 const (
 	rx = iota
 	gx
 	bx
 )
+
+// NewQuantizer is a constructor method which initializes a new Quantizer.
+func NewQuantizer() *Quant {
+	return &Quant{}
+}
+
+// Quantize returns a paletted image.
+// We need to use type assertion to match the interface returning type.
+func (q Quant) Quantize(img image.Image, nq int) image.Image {
+	qz := newQuantizer(img, nq)        // set up a work space
+	qz.cluster()                       // cluster pixels by color
+	return qz.Paletted().(image.Image) // generate paletted image from clusters
+}
 
 func newQuantizer(img image.Image, nq int) *Quant {
 	b := img.Bounds()

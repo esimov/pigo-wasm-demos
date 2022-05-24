@@ -3,11 +3,12 @@ package pixelate
 import (
 	"fmt"
 	"image"
-	"image/color"
+	"image/draw"
 	"math"
 	"syscall/js"
 
 	"github.com/esimov/pigo-wasm-demos/detector"
+	"github.com/esimov/pigo-wasm-demos/pixels"
 )
 
 // Canvas struct holds the Javascript objects needed for the Canvas creation
@@ -23,10 +24,14 @@ type Canvas struct {
 	windowSize struct{ width, height int }
 
 	// Canvas properties
-	canvas   js.Value
-	ctx      js.Value
-	reqID    js.Value
-	renderer js.Func
+	canvas    js.Value
+	ellipse   js.Value
+	offscreen js.Value
+	ctx       js.Value
+	ctxMask   js.Value
+	ctxOffscr js.Value
+	reqID     js.Value
+	renderer  js.Func
 
 	// Webcam properties
 	navigator js.Value
@@ -35,30 +40,28 @@ type Canvas struct {
 	// Canvas interaction related variables
 	showPupil bool
 	showFrame bool
-	useNoise  bool
 
 	// Quantizer related variables
 	numOfColors int
 	cellSize    int
+	noiseLevel  int
 
 	frame *image.NRGBA
 }
 
-// SubImager is a wrapper implementing the SubImage method from the image package.
-type SubImager interface {
-	SubImage(r image.Rectangle) image.Image
-}
-
 const (
-	minColors   = 2
-	maxColors   = 32
-	minCellSize = 8
-	maxCellSize = 30
+	minColors     = 2
+	maxColors     = 32
+	minCellSize   = 8
+	maxCellSize   = 30
+	minNoiseLevel = 0
+	maxNoiseLevel = 20
+	noiseLevel    = 0
 )
 
 var (
-	det   *detector.Detector
-	quant Quant
+	pigo  *detector.Detector
+	quant *Quant
 )
 
 // NewCanvas creates and initializes the new Canvas element
@@ -68,25 +71,36 @@ func NewCanvas() *Canvas {
 	c.doc = c.window.Get("document")
 	c.body = c.doc.Get("body")
 
-	c.windowSize.width = 640
-	c.windowSize.height = 480
+	c.windowSize.width = 768
+	c.windowSize.height = 576
 
 	c.canvas = c.doc.Call("createElement", "canvas")
+	c.ellipse = c.doc.Call("createElement", "canvas")
+	c.offscreen = c.doc.Call("createElement", "canvas")
+
 	c.canvas.Set("width", c.windowSize.width)
 	c.canvas.Set("height", c.windowSize.height)
 	c.canvas.Set("id", "canvas")
 	c.body.Call("appendChild", c.canvas)
 
+	c.ellipse.Set("width", c.windowSize.width)
+	c.ellipse.Set("height", c.windowSize.height)
+
+	c.offscreen.Set("width", c.windowSize.width)
+	c.offscreen.Set("height", c.windowSize.height)
+
 	c.ctx = c.canvas.Call("getContext", "2d")
+	c.ctxMask = c.ellipse.Call("getContext", "2d")
+	c.ctxOffscr = c.offscreen.Call("getContext", "2d")
+
 	c.showPupil = false
 	c.showFrame = false
-	c.useNoise = false
 
 	c.numOfColors = 8
 	c.cellSize = 10
 
-	det = detector.NewDetector()
-	quant = Quant{}
+	pigo = detector.NewDetector()
+	quant = NewQuantizer()
 
 	return &c
 }
@@ -97,7 +111,7 @@ func (c *Canvas) Render() error {
 	var data = make([]byte, width*height*4)
 	c.done = make(chan struct{})
 
-	err := det.UnpackCascades()
+	err := pigo.UnpackCascades()
 	if err != nil {
 		return err
 	}
@@ -114,14 +128,14 @@ func (c *Canvas) Render() error {
 			// be able to transfer it from Javascript to Go via the js.CopyBytesToGo function.
 			uint8Arr := js.Global().Get("Uint8Array").New(rgba)
 			js.CopyBytesToGo(data, uint8Arr)
-			gray := c.rgbaToGrayscale(data)
+			gray := pixels.RgbaToGrayscale(data, width, height)
 
 			// Reset the data slice to its default values to avoid unnecessary memory allocation.
 			// Otherwise, the GC won't clean up the memory address allocated by this slice
 			// and the memory will keep up increasing by each iteration.
 			data = make([]byte, len(data))
 
-			res := det.DetectFaces(gray, height, width)
+			res := pigo.DetectFaces(gray, height, width)
 			c.drawDetection(data, res)
 
 			c.window.Get("stats").Call("end")
@@ -202,82 +216,37 @@ func (c *Canvas) StartWebcam() (*Canvas, error) {
 	}
 }
 
-// rgbaToGrayscale converts the rgb pixel values to grayscale
-func (c *Canvas) rgbaToGrayscale(data []uint8) []uint8 {
-	rows, cols := c.windowSize.width, c.windowSize.height
-	for r := 0; r < rows; r++ {
-		for c := 0; c < cols; c++ {
-			// gray = 0.2*red + 0.7*green + 0.1*blue
-			data[r*cols+c] = uint8(math.Round(
-				0.2126*float64(data[r*4*cols+4*c+0]) +
-					0.7152*float64(data[r*4*cols+4*c+1]) +
-					0.0722*float64(data[r*4*cols+4*c+2])))
-		}
-	}
-	return data
-}
-
-// pixToImage converts an array buffer to an image.
-func (c *Canvas) pixToImage(pixels []uint8, dim int) image.Image {
-	c.frame = image.NewNRGBA(image.Rect(0, 0, dim, dim))
-	bounds := c.frame.Bounds()
-	dx, dy := bounds.Max.X, bounds.Max.Y
-	col := color.NRGBA{
-		R: uint8(0),
-		G: uint8(0),
-		B: uint8(0),
-		A: uint8(255),
-	}
-
-	for y := bounds.Min.Y; y < dy; y++ {
-		for x := bounds.Min.X; x < dx*4; x += 4 {
-			col.R = uint8(pixels[x+y*dx*4])
-			col.G = uint8(pixels[x+y*dx*4+1])
-			col.B = uint8(pixels[x+y*dx*4+2])
-			col.A = uint8(pixels[x+y*dx*4+3])
-
-			c.frame.SetNRGBA(y, int(x/4), col)
-		}
-	}
-	return c.frame
-}
-
-// imgToPix converts an image to an array buffer
-func (c *Canvas) imgToPix(img image.Image) []uint8 {
-	bounds := img.Bounds()
-	pixels := make([]uint8, 0, bounds.Max.X*bounds.Max.Y*4)
-
-	for i := bounds.Min.X; i < bounds.Max.X; i++ {
-		for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
-			r, g, b, _ := img.At(i, j).RGBA()
-			pixels = append(pixels, uint8(r>>8), uint8(g>>8), uint8(b>>8), 255)
-		}
-	}
-	return pixels
-}
-
 // pixelate pixelates the detected face region
-func (c *Canvas) pixelate(data []uint8, dets []int, useNoise bool) []uint8 {
+func (c *Canvas) pixelate(data []uint8, size image.Rectangle, noiseLevel int) []uint8 {
 	// Converts the array buffer to an image
-	img := c.pixToImage(data, int(float64(dets[2])*0.8))
+	img := pixels.PixToImage(data, size)
 
 	// Quantize the substracted image in order to reduce the number of colors.
-	// This will results in a pixelated subtype image.
-	cell := quant.Draw(img, c.numOfColors, c.cellSize, useNoise)
-	return c.imgToPix(cell)
+	// This will create a new pixelated subtype image.
+	cell := quant.Draw(img, c.numOfColors, c.cellSize, noiseLevel)
+
+	dst := image.NewNRGBA(cell.Bounds())
+	draw.Draw(dst, cell.Bounds(), cell, image.Point{}, draw.Over)
+
+	return pixels.ImgToPix(dst)
 }
 
 // drawDetection draws the detected faces and eyes.
 func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
-	for i := 0; i < len(dets); i++ {
-		if dets[i][3] > 50 {
+	var scaleX, scaleY, invScaleX, invScaleY float64
+	var grad js.Value
+
+	for _, det := range dets {
+		leftPupil := pigo.DetectLeftPupil(det)
+		rightPupil := pigo.DetectRightPupil(det)
+
+		if det[3] > 50 {
 			c.ctx.Call("beginPath")
 			c.ctx.Set("lineWidth", 2)
 			c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
 
-			row, col, scale := dets[i][1], dets[i][0], dets[i][2]
-			col = col + int(float64(col)*0.1)
-			scale = int(float64(scale) * 0.8)
+			row, col, scale := det[1], det[0], det[2]
+			//scale = int(float64(scale) * 0.9)
 
 			if c.showFrame {
 				c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
@@ -288,26 +257,76 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 			uint8Arr := js.Global().Get("Uint8Array").New(subimg)
 			js.CopyBytesToGo(imgData, uint8Arr)
 
-			buffer := c.pixelate(imgData, dets[i], c.useNoise)
-			uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
-			js.CopyBytesToJS(uint8Arr, buffer)
+			// Draw the ellipse mask.
+			{
+				scx, scy := int(float64(scale)*0.8/1.6), int(float64(scale)*0.8/2.0)
+				rx, ry := scx/2, scy/2
 
-			uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
-			rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
+				if rx >= ry {
+					scaleX, invScaleX = 1, 1
+					scaleY = float64(rx) / float64(ry)
+					invScaleY = float64(ry) / float64(rx)
+					grad = c.ctxMask.Call("createRadialGradient", scale/2, float64(scale/2)*invScaleY, 0, scale/2, float64(scale/2)*invScaleY, scx)
+				} else {
+					scaleY, invScaleY = 1, 1
+					scaleX = float64(ry) / float64(rx)
+					invScaleX = float64(rx) / float64(ry)
+					grad = c.ctxMask.Call("createRadialGradient", float64(scale/2)*invScaleX, scale/2, 0, float64(scale/2)*invScaleX, scale/2, scy)
+				}
 
-			// Replace the underlying face region byte array with the quantized values.
-			c.ctx.Call("putImageData", rawData, row-scale/2, col-scale/2)
-			c.ctx.Call("stroke")
+				grad.Call("addColorStop", 0.67, "rgba(0, 0, 0, 255)")
+				grad.Call("addColorStop", 0.82, "rgba(255, 255, 255, 0)")
+
+				// Clear the canvas on each frame.
+				c.ctxMask.Call("clearRect", 0, 0, c.windowSize.width, c.windowSize.height)
+				c.ctxMask.Call("setTransform", scaleX, 0, 0, scaleY, 0, 0)
+
+				c.ctxMask.Set("fillStyle", grad)
+				c.ctxMask.Call("fillRect", 0, 0, scale, scale)
+			}
+
+			// Draw the pixelated image into the ellipse gradient using composite operation.
+			{
+				rect := image.Rect(0, 0, scale, scale)
+				buffer := c.pixelate(imgData, rect, c.noiseLevel)
+
+				uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
+				js.CopyBytesToJS(uint8Arr, buffer)
+
+				uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
+				rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
+
+				// Clear out the canvas on each frame.
+				c.ctxOffscr.Call("clearRect", 0, 0, c.windowSize.width, c.windowSize.height)
+				// Replace the underlying face region with the blurred image.
+				c.ctxOffscr.Call("putImageData", rawData, 0, 0)
+
+				// Calculate the lean angle between the pupils.
+				angle := 1 - (math.Atan2(float64(rightPupil.Col-leftPupil.Col), float64(rightPupil.Row-leftPupil.Row)) * 180 / math.Pi / 90)
+
+				c.ctxOffscr.Call("save")
+				c.ctxOffscr.Call("translate", scale/2, scale/2)
+				c.ctxOffscr.Call("rotate", js.ValueOf(angle).Float())
+				c.ctxOffscr.Call("translate", -scale/2, -scale/2)
+
+				// Apply the ellipse mask over the source image by using composite operation.
+				c.ctxOffscr.Set("globalCompositeOperation", "destination-atop")
+				c.ctxOffscr.Call("drawImage", c.ellipse, 0, 0)
+				c.ctxOffscr.Call("restore")
+
+				// Combine all the layers.
+				c.ctx.Call("drawImage", c.offscreen, row-scale/2, col-scale/2)
+			}
 
 			if c.showPupil {
-				leftPupil := det.DetectLeftPupil(dets[i])
+				leftPupil := pigo.DetectLeftPupil(det)
 				if leftPupil != nil {
 					col, row, scale := leftPupil.Col, leftPupil.Row, leftPupil.Scale/8
 					c.ctx.Call("moveTo", col+int(scale), row)
 					c.ctx.Call("arc", col, row, scale, 0, 2*math.Pi, true)
 				}
 
-				rightPupil := det.DetectRightPupil(dets[i])
+				rightPupil := pigo.DetectRightPupil(det)
 				if rightPupil != nil {
 					col, row, scale := rightPupil.Col, rightPupil.Row, rightPupil.Scale/8
 					c.ctx.Call("moveTo", col+int(scale), row)
@@ -328,8 +347,14 @@ func (c *Canvas) detectKeyPress() {
 			c.showPupil = !c.showPupil
 		case keyCode.String() == "f":
 			c.showFrame = !c.showFrame
-		case keyCode.String() == "n":
-			c.useNoise = !c.useNoise
+		case keyCode.String() == "'":
+			if c.noiseLevel <= maxNoiseLevel {
+				c.noiseLevel += 2
+			}
+		case keyCode.String() == ";":
+			if c.noiseLevel > minNoiseLevel {
+				c.noiseLevel -= 2
+			}
 		case keyCode.String() == "=":
 			if c.numOfColors <= maxColors {
 				c.numOfColors++
