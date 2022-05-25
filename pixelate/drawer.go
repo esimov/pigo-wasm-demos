@@ -39,7 +39,7 @@ func (quant *Quant) Draw(src image.Image, numOfColors int, cellSize int, noiseLe
 			subImg := qimg.(*image.Paletted).SubImage(rect).(*image.Paletted)
 			cellColor := getAvgColor(subImg)
 
-			// Fill up the cell with the quantified color.
+			// Fill in the cell with the quantified color.
 			for xx := x; xx < x+cellSize; xx++ {
 				for yy := y; yy < y+cellSize; yy++ {
 					dst.Set(xx, yy, cellColor)

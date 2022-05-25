@@ -19,8 +19,7 @@ type Canvas struct {
 	done   chan struct{}
 	succCh chan struct{}
 	errCh  chan error
-	lock   sync.Mutex
-	g      *errgroup.Group
+	mu     *sync.Mutex
 
 	// DOM elements
 	window     js.Value
@@ -72,7 +71,10 @@ const (
 	maxStrokeWidth = 4
 )
 
-var pigo *detector.Detector
+var (
+	pigo *detector.Detector
+	g    *errgroup.Group
+)
 
 // NewCanvas creates and initializes the new Canvas element
 func NewCanvas() *Canvas {
@@ -127,8 +129,8 @@ func NewCanvas() *Canvas {
 		Grayscale:       c.isGrayScaled,
 		BgColor:         "#ffffff00",
 	}
-	c.lock = sync.Mutex{}
-	c.g = &errgroup.Group{}
+	c.mu = &sync.Mutex{}
+	g = &errgroup.Group{}
 
 	c.triangle = &triangle.Image{*c.processor}
 
@@ -266,7 +268,7 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 
 	for _, det := range dets {
 		det := det
-		c.g.Go(func() error {
+		g.Go(func() error {
 			leftPupil := pigo.DetectLeftPupil(det)
 			rightPupil := pigo.DetectRightPupil(det)
 
@@ -275,7 +277,8 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 				c.ctx.Set("lineWidth", 2)
 				c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
 
-				row, col, scale := det[1], det[0], det[2]
+				row, col, scale := det[1], det[0], int(float64(det[2])*1.1)
+
 				// Substract the image under the detected face region.
 				imgData := make([]byte, scale*scale*4)
 				subimg := c.ctx.Call("getImageData", row-scale/2, col-scale/2, scale, scale).Get("data")
@@ -284,7 +287,7 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 
 				// Draw the ellipse mask.
 				{
-					scx, scy := int(float64(scale)*0.8/1.6), int(float64(scale)*0.8/2.0)
+					scx, scy := int(float64(scale)*0.8/1.6), int(float64(scale)*0.8/2.1)
 					rx, ry := scx/2, scy/2
 
 					if rx >= ry {
@@ -307,10 +310,10 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 					c.ctxMask.Call("setTransform", scaleX, 0, 0, scaleY, 0, 0)
 
 					c.ctxMask.Set("fillStyle", grad)
-					c.ctxMask.Call("fillRect", 0, 0, scale, scale)
+					c.ctxMask.Call("fillRect", 0, 0, float64(scale)*invScaleX, float64(scale)*invScaleY)
 				}
 
-				c.lock.Lock()
+				c.mu.Lock()
 
 				// Triangulate the detected face region.
 				rect := image.Rect(0, 0, scale, scale)
@@ -319,7 +322,7 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 					return err
 				}
 
-				c.lock.Unlock()
+				c.mu.Unlock()
 
 				// Draw the triangulated image into the ellipse gradient using composite operation.
 				{
@@ -359,7 +362,7 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 			return nil
 		})
 	}
-	if err := c.g.Wait(); err != nil {
+	if err := g.Wait(); err != nil {
 		return err
 	}
 	return nil

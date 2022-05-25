@@ -247,9 +247,6 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 
 			row, col, scale := det[1], det[0], int(float64(det[2])*1.1)
 
-			if c.showFrame {
-				c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
-			}
 			// Substract the image under the detected face region.
 			imgData := make([]byte, scale*scale*4)
 			subimg := c.ctx.Call("getImageData", row-scale/2, col-scale/2, scale, scale).Get("data")
@@ -313,6 +310,10 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) {
 
 				// Combine all the layers.
 				c.ctx.Call("drawImage", c.offscreen, row-scale/2, col-scale/2)
+			}
+
+			if c.showFrame {
+				c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
 			}
 
 			if c.showPupil {
