@@ -24,14 +24,14 @@ type Canvas struct {
 	windowSize struct{ width, height int }
 
 	// Canvas properties
-	canvas    js.Value
-	ellipse   js.Value
-	offscreen js.Value
-	ctx       js.Value
-	ctxMask   js.Value
-	ctxOffscr js.Value
-	reqID     js.Value
-	renderer  js.Func
+	canvas     js.Value
+	ellipse    js.Value
+	offscreen  js.Value
+	ctx        js.Value
+	ctxEllipse js.Value
+	ctxOffscr  js.Value
+	reqID      js.Value
+	renderer   js.Func
 
 	// Webcam properties
 	navigator js.Value
@@ -79,7 +79,7 @@ func NewCanvas() *Canvas {
 	c.offscreen.Set("height", c.windowSize.height)
 
 	c.ctx = c.canvas.Call("getContext", "2d")
-	c.ctxMask = c.ellipse.Call("getContext", "2d")
+	c.ctxEllipse = c.ellipse.Call("getContext", "2d")
 	c.ctxOffscr = c.offscreen.Call("getContext", "2d")
 
 	c.showPupil = false
@@ -248,23 +248,23 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 					scaleX, invScaleX = 1, 1
 					scaleY = float64(rx) / float64(ry)
 					invScaleY = float64(ry) / float64(rx)
-					grad = c.ctxMask.Call("createRadialGradient", scale/2, float64(scale/2)*invScaleY, 0, scale/2, float64(scale/2)*invScaleY, scx)
+					grad = c.ctxEllipse.Call("createRadialGradient", scale/2, float64(scale/2)*invScaleY, 0, scale/2, float64(scale/2)*invScaleY, scx)
 				} else {
 					scaleY, invScaleY = 1, 1
 					scaleX = float64(ry) / float64(rx)
 					invScaleX = float64(rx) / float64(ry)
-					grad = c.ctxMask.Call("createRadialGradient", float64(scale/2)*invScaleX, scale/2, 0, float64(scale/2)*invScaleX, scale/2, scy)
+					grad = c.ctxEllipse.Call("createRadialGradient", float64(scale/2)*invScaleX, scale/2, 0, float64(scale/2)*invScaleX, scale/2, scy)
 				}
 
-				grad.Call("addColorStop", 0.53, "rgba(0, 0, 0, 255)")
+				grad.Call("addColorStop", 0.55, "rgba(0, 0, 0, 255)")
 				grad.Call("addColorStop", 0.75, "rgba(255, 255, 255, 0)")
 
 				// Clear the canvas on each frame.
-				c.ctxMask.Call("clearRect", 0, 0, c.windowSize.width, c.windowSize.height)
-				c.ctxMask.Call("setTransform", scaleX, 0, 0, scaleY, 0, 0)
+				c.ctxEllipse.Call("clearRect", 0, 0, c.windowSize.width, c.windowSize.height)
+				c.ctxEllipse.Call("setTransform", scaleX, 0, 0, scaleY, 0, 0)
 
-				c.ctxMask.Set("fillStyle", grad)
-				c.ctxMask.Call("fillRect", 0, 0, scale, scale)
+				c.ctxEllipse.Set("fillStyle", grad)
+				c.ctxEllipse.Call("fillRect", 0, 0, float64(scale)*invScaleX, float64(scale)*invScaleY)
 
 				// Converts the buffer array to an image.
 				rect := image.Rect(0, 0, scale, scale)

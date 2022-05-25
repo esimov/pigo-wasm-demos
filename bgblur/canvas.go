@@ -1,3 +1,6 @@
+//go:build js && wasm
+// +build js,wasm
+
 package bgblur
 
 import (
@@ -25,12 +28,11 @@ type Canvas struct {
 
 	// Canvas properties
 	canvas     js.Value
-	faceCanvas js.Value
+	face       js.Value
 	ellipse    js.Value
 	ctx        js.Value
-	ctxTmp     js.Value
-	buffer     js.Value
-	ctxMask    js.Value
+	ctxFace    js.Value
+	ctxEllipse js.Value
 	tmp        js.Value
 	reqID      js.Value
 	renderer   js.Func
@@ -52,10 +54,7 @@ const (
 	maxBlurRadius = 50
 )
 
-var (
-	background js.Value
-	pigo       *detector.Detector
-)
+var pigo *detector.Detector
 
 // NewCanvas creates and initializes the new Canvas element
 func NewCanvas() *Canvas {
@@ -68,7 +67,7 @@ func NewCanvas() *Canvas {
 	c.windowSize.height = 576
 
 	c.canvas = c.doc.Call("createElement", "canvas")
-	c.faceCanvas = c.doc.Call("createElement", "canvas")
+	c.face = c.doc.Call("createElement", "canvas")
 	c.ellipse = c.doc.Call("createElement", "canvas")
 	c.tmp = c.doc.Call("createElement", "canvas")
 
@@ -77,8 +76,8 @@ func NewCanvas() *Canvas {
 	c.canvas.Set("id", "canvas")
 	c.body.Call("appendChild", c.canvas)
 
-	c.faceCanvas.Set("width", c.windowSize.width)
-	c.faceCanvas.Set("height", c.windowSize.height)
+	c.face.Set("width", c.windowSize.width)
+	c.face.Set("height", c.windowSize.height)
 	c.ellipse.Set("width", c.windowSize.width)
 	c.ellipse.Set("height", c.windowSize.height)
 
@@ -86,9 +85,8 @@ func NewCanvas() *Canvas {
 	c.tmp.Set("height", c.windowSize.height)
 
 	c.ctx = c.canvas.Call("getContext", "2d")
-	c.buffer = c.faceCanvas.Call("getContext", "2d")
-	c.ctxMask = c.ellipse.Call("getContext", "2d")
-	c.ctxTmp = c.tmp.Call("getContext", "2d")
+	c.ctxFace = c.face.Call("getContext", "2d")
+	c.ctxEllipse = c.ellipse.Call("getContext", "2d")
 
 	c.showPupil = false
 	c.showFrame = false
@@ -121,7 +119,7 @@ func (c *Canvas) Render() error {
 			imageData := c.ctx.Call("getImageData", 0, 0, width, height)
 			rgba := imageData.Get("data")
 
-			c.buffer.Call("putImageData", imageData, 0, 0)
+			c.ctxFace.Call("putImageData", imageData, 0, 0)
 
 			// Convert the rgba value of type Uint8ClampedArray to Uint8Array in order to
 			// be able to transfer it from Javascript to Go via the js.CopyBytesToGo function.
@@ -151,10 +149,8 @@ func (c *Canvas) Render() error {
 				gray := pixels.RgbaToGrayscale(data, width, height)
 				res := pigo.DetectFaces(gray, height, width)
 
-				if len(res) > 0 {
-					if err := c.drawDetection(res); err != nil {
-						return err
-					}
+				if err := c.drawDetection(res); err != nil {
+					return err
 				}
 			}
 			// Reset the data slice to its default values to avoid unnecessary memory allocation.
@@ -269,43 +265,44 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 			scx, scy := int(float64(scale)*0.8/1.6), int(float64(scale)*0.8/2.1)
 			rx, ry := scx/2, scy/2
 
+			// Create an ellipse radial gradient.
 			if rx >= ry {
 				scaleX, invScaleX = 1, 1
 				scaleY = float64(rx) / float64(ry)
 				invScaleY = float64(ry) / float64(rx)
-				grad = c.ctxMask.Call("createRadialGradient", scale/2, float64(scale/2)*invScaleY, 0, scale/2, float64(scale/2)*invScaleY, scx)
+				grad = c.ctxEllipse.Call("createRadialGradient", scale/2, float64(scale/2)*invScaleY, 0, scale/2, float64(scale/2)*invScaleY, scx)
 			} else {
 				scaleY, invScaleY = 1, 1
 				scaleX = float64(ry) / float64(rx)
 				invScaleX = float64(rx) / float64(ry)
-				grad = c.ctxMask.Call("createRadialGradient", float64(scale/2)*invScaleX, scale/2, 0, float64(scale/2)*invScaleX, scale/2, scy)
+				grad = c.ctxEllipse.Call("createRadialGradient", float64(scale/2)*invScaleX, scale/2, 0, float64(scale/2)*invScaleX, scale/2, scy)
 			}
 
-			grad.Call("addColorStop", 0.53, "rgba(0, 0, 0, 255)")
+			grad.Call("addColorStop", 0.55, "rgba(0, 0, 0, 255)")
 			grad.Call("addColorStop", 0.75, "rgba(255, 255, 255, 0)")
 
 			// Clear the canvas on each frame.
-			c.ctxMask.Call("clearRect", 0, 0, c.windowSize.width, c.windowSize.height)
-			c.ctxMask.Call("setTransform", scaleX, 0, 0, scaleY, 0, 0)
+			c.ctxEllipse.Call("clearRect", 0, 0, c.windowSize.width, c.windowSize.height)
+			c.ctxEllipse.Call("setTransform", scaleX, 0, 0, scaleY, 0, 0)
 
-			c.ctxMask.Set("fillStyle", grad)
-			c.ctxMask.Call("fillRect", 0, 0, scale, scale)
+			c.ctxEllipse.Set("fillStyle", grad)
+			c.ctxEllipse.Call("fillRect", 0, 0, float64(scale)*invScaleX, float64(scale)*invScaleY)
 
 			// Calculate the lean angle between the eyes.
 			angle := 1 - (math.Atan2(float64(rightPupil.Col-leftPupil.Col), float64(rightPupil.Row-leftPupil.Row)) * 180 / math.Pi / 90)
 
-			c.buffer.Call("save")
-			c.buffer.Call("translate", scale/2, scale/2)
-			c.buffer.Call("rotate", js.ValueOf(angle).Float())
-			c.buffer.Call("translate", -scale/2, -scale/2)
-			c.buffer.Call("restore")
+			c.ctxFace.Call("save")
+			c.ctxFace.Call("translate", scale/2, scale/2)
+			c.ctxFace.Call("rotate", js.ValueOf(angle).Float())
+			c.ctxFace.Call("translate", -scale/2, -scale/2)
 
 			// Apply the ellipse mask over the source image by using composite operation.
-			c.buffer.Set("globalCompositeOperation", "destination-atop")
-			c.buffer.Call("drawImage", c.ellipse, row-scale/2, col-scale/2)
+			c.ctxFace.Set("globalCompositeOperation", "destination-atop")
+			c.ctxFace.Call("drawImage", c.ellipse, row-scale/2, col-scale/2)
+			c.ctxFace.Call("restore")
 
-			// Apply the ellipse mask over the blurred face rectangle by using composite operation.
-			c.ctx.Call("drawImage", c.faceCanvas, 0, 0)
+			// Apply the ellipse mask over the blurred face by using composite operation.
+			c.ctx.Call("drawImage", c.face, 0, 0)
 
 			if c.showFrame {
 				c.ctx.Call("rect", row-scale/2, col-scale/2, scale, scale)
