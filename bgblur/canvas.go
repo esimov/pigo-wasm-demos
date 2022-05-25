@@ -292,9 +292,9 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 			angle := 1 - (math.Atan2(float64(rightPupil.Col-leftPupil.Col), float64(rightPupil.Row-leftPupil.Row)) * 180 / math.Pi / 90)
 
 			c.ctxFace.Call("save")
-			c.ctxFace.Call("translate", scale/2, scale/2)
+			c.ctxFace.Call("translate", float64(scale)*invScaleX, float64(scale)*invScaleY)
 			c.ctxFace.Call("rotate", js.ValueOf(angle).Float())
-			c.ctxFace.Call("translate", -scale/2, -scale/2)
+			c.ctxFace.Call("translate", float64(-scale)*invScaleX, float64(-scale)*invScaleY)
 
 			// Apply the ellipse mask over the source image by using composite operation.
 			c.ctxFace.Set("globalCompositeOperation", "destination-atop")
