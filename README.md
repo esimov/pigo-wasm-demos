@@ -41,8 +41,7 @@ $ make demo1
 ```bash
 $ make demo2
 ```
-![pigo_wasm_faceblur](https://user-images.githubusercontent.com/883386/82048882-16482180-96be-11ea-9246-836c378b7eb7.gif)
-
+![pigo_wasm_faceblur](https://user-images.githubusercontent.com/883386/170483688-5a145550-5a7b-4400-af34-842333fb1a8e.gif)
 
 #### Key bindings:
 <kbd>f</kbd> - Show/hide detected face marker<br/>
@@ -51,25 +50,24 @@ $ make demo2
 <kbd>]</kbd> - Increase the blur radius<br/>
 <kbd>[</kbd> - Decrease the blur radius<br/>
 
-### Pixelate
+### Background blur in Zoom style
 ```bash
 $ make demo3
 ```
-![pigo_wasm_pixelate](https://user-images.githubusercontent.com/883386/82049123-80f95d00-96be-11ea-801d-6e5a50d36114.gif)
+![pigo_wasm_background_blur](https://user-images.githubusercontent.com/883386/170483670-2ad0f865-d89d-44c4-8cb5-f9d5736d12fb.gif)
 
 #### Key bindings:
 <kbd>f</kbd> - Show/hide detected face marker<br/>
 <kbd>s</kbd> - Show/hide pupils<br/>
-<kbd>=</kbd> - Increase the number of colors<br/>
-<kbd>-</kbd> - Decrease the number of colors<br/>
-<kbd>]</kbd> - Increase the cells size<br/>
-<kbd>[</kbd> - Decrease the cells size<br/>
+<kbd>b</kbd> - Enable/disable face blur<br/>
+<kbd>]</kbd> - Increase the blur radius<br/>
+<kbd>[</kbd> - Decrease the blur radius<br/>
 
 ### Face triangulator
 ```bash
 $ make demo4
 ```
-![pigo_wasm_triangulate](https://user-images.githubusercontent.com/883386/82050510-ebab9800-96c0-11ea-84fb-00475076d33f.gif)
+![pigo_wasm_triangulate](https://user-images.githubusercontent.com/883386/170484192-c43bafa5-36c6-41a8-9e23-3f3d04264b08.gif)
 
 #### Key bindings:
 <kbd>f</kbd> - Show/hide detected face marker<br/>
@@ -80,6 +78,21 @@ $ make demo4
 <kbd>[</kbd> - Decrease the threshold<br/>
 <kbd>1</kbd> - Increase the stroke size<br/>
 <kbd>0</kbd> - Decrease the stroke size<br/>
+
+
+### Pixelate
+```bash
+$ make demo5
+```
+![pigo_wasm_pixelate](https://user-images.githubusercontent.com/883386/170484527-b98745e5-5f93-45cb-a86d-ed12332c8d41.gif)
+
+#### Key bindings:
+<kbd>f</kbd> - Show/hide detected face marker<br/>
+<kbd>s</kbd> - Show/hide pupils<br/>
+<kbd>=</kbd> - Increase the number of colors<br/>
+<kbd>-</kbd> - Decrease the number of colors<br/>
+<kbd>]</kbd> - Increase the cells size<br/>
+<kbd>[</kbd> - Decrease the cells size<br/>
 
 ### Triangulated facemask
 ```bash
