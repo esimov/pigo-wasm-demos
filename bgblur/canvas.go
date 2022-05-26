@@ -149,7 +149,7 @@ func (c *Canvas) Render() error {
 				gray := pixels.RgbaToGrayscale(data, width, height)
 				res := pigo.DetectFaces(gray, height, width)
 
-				if err := c.drawDetection(res); err != nil {
+				if err := c.drawDetection(res, imageData); err != nil {
 					return err
 				}
 			}
@@ -248,7 +248,7 @@ func (c *Canvas) blurBackground(src image.Image) (*image.NRGBA, error) {
 }
 
 // drawDetection draws the detected faces and eyes.
-func (c *Canvas) drawDetection(dets [][]int) error {
+func (c *Canvas) drawDetection(dets [][]int, imageData js.Value) error {
 	var scaleX, scaleY, invScaleX, invScaleY float64
 	var grad js.Value
 
@@ -288,6 +288,9 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 			c.ctxEllipse.Set("fillStyle", grad)
 			c.ctxEllipse.Call("fillRect", 0, 0, float64(scale)*invScaleX, float64(scale)*invScaleY)
 
+			// Replace the underlying face region with the original image.
+			c.ctxFace.Call("putImageData", imageData, 0, 0)
+
 			// Calculate the lean angle between the eyes.
 			angle := 1 - (math.Atan2(float64(rightPupil.Col-leftPupil.Col), float64(rightPupil.Row-leftPupil.Row)) * 180 / math.Pi / 90)
 
@@ -297,7 +300,7 @@ func (c *Canvas) drawDetection(dets [][]int) error {
 			c.ctxFace.Call("translate", float64(-scale)*invScaleX, float64(-scale)*invScaleY)
 
 			// Apply the ellipse mask over the source image by using composite operation.
-			c.ctxFace.Set("globalCompositeOperation", "destination-atop")
+			c.ctxFace.Set("globalCompositeOperation", "destination-in")
 			c.ctxFace.Call("drawImage", c.ellipse, row-scale/2, col-scale/2)
 			c.ctxFace.Call("restore")
 
