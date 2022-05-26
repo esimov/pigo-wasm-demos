@@ -4,18 +4,18 @@
 
 <p align="center"><img src="https://user-images.githubusercontent.com/883386/80915158-06911a80-8d59-11ea-93bd-eca98750ad62.png" alt="Pigo Wasm demos" title="Pigo Wasm demos" width="400"/></p>
 
-This repository is a collection of Webassembly demos running real time and using the [Pigo](https://github.com/esimov/pigo) face detection library, showcasing various potential use cases. **It is continuously updated**.
+This repository is a collection of Webassembly demos (which means they are running in the Web browser) showcasing a few examples of using the [Pigo](https://github.com/esimov/pigo) face detection library in real time. **This library meant to be continuously updated**.
 
 ## Install
 **Notice: at least Go 1.13 is required in order to run the demos!**
 
 ```bash
-$ go get -u -v github.com/esimov/pigo-wasm-demos 
-
+$ go install github.com/esimov/pigo-wasm-demos@latest
 ```
 
 ## Run
-Running the demo is as simple as typing a single line of command. This will build the package and produce an executable WebAssembly file which can be served over a http server. A new tab will be opened automatically in the user's default browser. 
+
+You only need to type `$make demo{no}`. This will build the package and produce an executable WebAssembly file which can be served over an http server. A new tab will be opened automatically in the user's default browser. 
 
 ## Demos
 
@@ -27,7 +27,7 @@ $ make demo1
 
 
 #### Key bindings:
-<kbd>q</kbd> - Show/hide detected face marker<br/>
+<kbd>q</kbd> - Show/hide the detected face rectangle<br/>
 <kbd>z</kbd> - Show/hide pupils<br/>
 <kbd>w</kbd> - Show/hide eye mask<br/>
 <kbd>s</kbd> - Show/hide mouth mask<br/>
@@ -44,24 +44,23 @@ $ make demo2
 ![pigo_wasm_faceblur](https://user-images.githubusercontent.com/883386/170483688-5a145550-5a7b-4400-af34-842333fb1a8e.gif)
 
 #### Key bindings:
-<kbd>f</kbd> - Show/hide detected face marker<br/>
-<kbd>s</kbd> - Show/hide pupils<br/>
-<kbd>b</kbd> - Enable/disable face blur<br/>
 <kbd>]</kbd> - Increase the blur radius<br/>
 <kbd>[</kbd> - Decrease the blur radius<br/>
+<kbd>f</kbd> - Show/hide the detected face rectangle<br/>
+<kbd>s</kbd> - Show/hide pupils<br/>
+<kbd>b</kbd> - Enable/disable face blur<br/>
 
-### Background blur in Zoom style
+### Background blur (in Zoom style)
 ```bash
 $ make demo3
 ```
 ![pigo_wasm_background_blur](https://user-images.githubusercontent.com/883386/170483670-2ad0f865-d89d-44c4-8cb5-f9d5736d12fb.gif)
 
 #### Key bindings:
-<kbd>f</kbd> - Show/hide detected face marker<br/>
-<kbd>s</kbd> - Show/hide pupils<br/>
-<kbd>b</kbd> - Enable/disable face blur<br/>
 <kbd>]</kbd> - Increase the blur radius<br/>
 <kbd>[</kbd> - Decrease the blur radius<br/>
+<kbd>f</kbd> - Show/hide the detected face rectangle<br/>
+<kbd>s</kbd> - Show/hide pupils<br/>
 
 ### Face triangulator
 ```bash
@@ -70,7 +69,7 @@ $ make demo4
 ![pigo_wasm_triangulate](https://user-images.githubusercontent.com/883386/170484192-c43bafa5-36c6-41a8-9e23-3f3d04264b08.gif)
 
 #### Key bindings:
-<kbd>f</kbd> - Show/hide detected face marker<br/>
+<kbd>f</kbd> - Show/hide the detected face rectangle<br/>
 <kbd>s</kbd> - Show/hide pupils<br/>
 <kbd>=</kbd> - Increase the number of triangles<br/>
 <kbd>-</kbd> - Decrease the number of triangles<br/>
@@ -87,7 +86,7 @@ $ make demo5
 ![pigo_wasm_pixelate](https://user-images.githubusercontent.com/883386/170484527-b98745e5-5f93-45cb-a86d-ed12332c8d41.gif)
 
 #### Key bindings:
-<kbd>f</kbd> - Show/hide detected face marker<br/>
+<kbd>f</kbd> - Show/hide the detected face rectangle<br/>
 <kbd>s</kbd> - Show/hide pupils<br/>
 <kbd>=</kbd> - Increase the number of colors<br/>
 <kbd>-</kbd> - Decrease the number of colors<br/>
@@ -96,7 +95,7 @@ $ make demo5
 
 ### Triangulated facemask
 ```bash
-$ make demo5
+$ make demo6
 ```
 ![facemask](https://user-images.githubusercontent.com/883386/132861943-5f130ec2-dae2-4034-9abd-4c9de0de066c.gif)
 
