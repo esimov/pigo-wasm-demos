@@ -10,7 +10,7 @@ import (
 
 	"github.com/esimov/pigo-wasm-demos/detector"
 	"github.com/esimov/pigo-wasm-demos/pixels"
-	"github.com/esimov/triangle"
+	"github.com/esimov/triangle/v2"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -19,7 +19,7 @@ type Canvas struct {
 	done   chan struct{}
 	succCh chan struct{}
 	errCh  chan error
-	lock   sync.Mutex
+	mu     sync.Mutex
 	g      *errgroup.Group
 
 	// DOM elements
@@ -65,6 +65,7 @@ const (
 
 	minStrokeWidth = 0
 	maxStrokeWidth = 4
+	minScale       = 200
 )
 
 var (
@@ -82,25 +83,18 @@ func NewCanvas() *Canvas {
 	c.doc = c.window.Get("document")
 	c.body = c.doc.Get("body")
 
-	c.windowSize.width = 640
-	c.windowSize.height = 480
-
-	wrapper := c.doc.Call("createElement", "div")
-	wrapper.Set("id", "wrapper")
-	c.body.Call("appendChild", wrapper)
+	c.windowSize.width = 768
+	c.windowSize.height = 576
 
 	c.webcamCanvas = c.doc.Call("createElement", "canvas")
 	c.webcamCanvas.Set("width", c.windowSize.width)
 	c.webcamCanvas.Set("height", c.windowSize.height)
 	c.webcamCanvas.Set("id", "canvas")
+	c.body.Call("appendChild", c.webcamCanvas)
 
 	c.maskCanvas = c.doc.Call("createElement", "canvas")
 	c.maskCanvas.Set("width", c.windowSize.width)
 	c.maskCanvas.Set("height", c.windowSize.height)
-	c.maskCanvas.Set("id", "canvas2")
-
-	wrapper.Call("appendChild", c.webcamCanvas)
-	wrapper.Call("appendChild", c.maskCanvas)
 
 	c.snapshotBtn = c.doc.Call("createElement", "div")
 	c.snapshotBtn.Set("id", "snapshot")
@@ -135,7 +129,7 @@ func NewCanvas() *Canvas {
 		BgColor:         "#ffffff00",
 	}
 
-	c.lock = sync.Mutex{}
+	c.mu = sync.Mutex{}
 	c.g = &errgroup.Group{}
 
 	c.triangle = &triangle.Image{*c.processor}
@@ -148,15 +142,19 @@ func (c *Canvas) Render() error {
 	var data = make([]byte, width*height*4)
 	c.done = make(chan struct{})
 
-	if img, err := pixels.LoadImage("/images/surgical-mask.png"); err != nil {
-		mask = js.Global().Call("eval", "new Image()")
-		mask.Set("src", "data:image/png;base64,"+img)
+	img, err := pixels.LoadImage("/images/surgical-mask.png")
+	if err != nil {
+		return err
 	}
+	mask = js.Global().Call("eval", "new Image()")
+	mask.Set("src", "data:image/png;base64,"+img)
+	mask.Call("addEventListener", "load", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		maskWidth = js.ValueOf(mask.Get("naturalWidth")).Int()
+		maskHeight = js.ValueOf(mask.Get("naturalHeight")).Int()
+		return nil
+	}))
 
-	maskWidth = js.ValueOf(mask.Get("naturalWidth")).Int()
-	maskHeight = js.ValueOf(mask.Get("naturalHeight")).Int()
-
-	err := pigo.UnpackCascades()
+	err = pigo.UnpackCascades()
 	if err != nil {
 		return err
 	}
@@ -164,11 +162,11 @@ func (c *Canvas) Render() error {
 		go func() {
 			c.window.Get("stats").Call("begin")
 
-			width, height := c.windowSize.width, c.windowSize.height
 			c.reqID = c.window.Call("requestAnimationFrame", c.renderer)
+			width, height := c.windowSize.width, c.windowSize.height
+
 			// Draw the webcam frame to the canvas element
 			c.ctx.Call("drawImage", c.video, 0, 0)
-			c.ctx2.Call("drawImage", c.video, 0, 0)
 			rgba := c.ctx.Call("getImageData", 0, 0, width, height).Get("data")
 
 			// Convert the rgba value of type Uint8ClampedArray to Uint8Array in order to
@@ -300,9 +298,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 				c.ctx.Set("lineWidth", 2)
 				c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
 
-				row, col, scale := det[1], det[0], det[2]
-				row = row + int(float64(row)*0.02)
-				col = col + int(float64(col)*0.2)
+				row, col, scale := det[1], det[0], int(float64(det[2])*0.8)
 
 				leftPupil := pigo.DetectLeftPupil(det)
 				rightPupil := pigo.DetectRightPupil(det)
@@ -313,10 +309,10 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 
 					// Calculate the lean angle between the two mouth points.
 					angle := 1 - (math.Atan2(float64(p2[0]-p1[0]), float64(p2[1]-p1[1])) * 180 / math.Pi / 90)
-					if math.Abs(angle) > 0.1 {
-						c.snapshotBtn.Set("style", "display:none")
+					if scale < minScale || math.Abs(angle) > 0.1 {
+						c.snapshotBtn.Get("style").Set("backgroundColor", "#ff0000")
 					} else {
-						c.snapshotBtn.Set("style", "display:block")
+						c.snapshotBtn.Get("style").Set("backgroundColor", "#0da307")
 					}
 
 					if scale < maskWidth || scale < maskHeight {
@@ -326,13 +322,12 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 							imgScale = float64(scale) / float64(maskWidth)
 						}
 					}
-					width, height := float64(maskWidth)*imgScale*0.7, float64(maskHeight)*imgScale*0.7
+					imgScale *= 0.9
+
+					width, height := float64(maskWidth)*imgScale, float64(maskHeight)*imgScale*0.9
 					tx := row - int(width/2)
 					ty := p1[1] + (p1[1]-p2[1])/2 - int(height*0.5)
-
-					c.ctx.Call("save")
-					c.ctx.Call("translate", js.ValueOf(tx).Int(), js.ValueOf(ty).Int())
-					c.ctx.Call("rotate", js.ValueOf(angle).Float())
+					col += int(float64(scale) * 0.3)
 
 					// Substract the image under the detected face region.
 					imgData := make([]byte, scale*scale*4)
@@ -341,13 +336,13 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 					js.CopyBytesToGo(imgData, uint8Arr)
 
 					// Triangulate the facemask part.
-					c.lock.Lock()
+					c.mu.Lock()
 					rect := image.Rect(0, 0, scale, scale)
 					triangle, err := c.triangulate(imgData, rect)
 					if err != nil {
 						return err
 					}
-					c.lock.Unlock()
+					c.mu.Unlock()
 
 					uint8Arr = js.Global().Get("Uint8Array").New(scale * scale * 4)
 					js.CopyBytesToJS(uint8Arr, triangle)
@@ -355,16 +350,34 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 					uint8Clamped := js.Global().Get("Uint8ClampedArray").New(uint8Arr)
 					rawData := js.Global().Get("ImageData").New(uint8Clamped, scale)
 
+					// Clear out the canvas on each frame.
+					c.ctx2.Call("clearRect", 0, 0, c.windowSize.width, c.windowSize.height)
+
+					c.ctx2.Call("save")
+					c.ctx2.Call("translate", js.ValueOf(tx).Int(), js.ValueOf(ty).Int())
+					c.ctx2.Call("rotate", js.ValueOf(angle).Float())
+					c.ctx2.Call("translate", js.ValueOf(-tx).Int(), js.ValueOf(-ty).Int())
+
 					// Replace the underlying face region with the triangulated image.
-					c.ctx.Call("putImageData", rawData, row-scale/2, col-scale/2)
+					c.ctx2.Call("putImageData", rawData, row-scale/2, col-scale/2)
 
 					// We are using globalCompositeOperation `destination-atop` drawing method to
 					// substract the overlayed facemask from the detected face region.
-					c.ctx.Set("globalCompositeOperation", "destination-atop")
-					c.ctx.Call("drawImage", mask,
-						js.ValueOf(0).Int(), js.ValueOf(0).Int(),
+					c.ctx2.Set("globalCompositeOperation", "destination-in")
+
+					c.ctx2.Call("drawImage", mask,
+						js.ValueOf(tx).Int(), js.ValueOf(ty).Int(),
 						js.ValueOf(width).Int(), js.ValueOf(height).Int(),
 					)
+					c.ctx2.Call("restore")
+
+					c.ctx.Call("save")
+					c.ctx.Call("translate", js.ValueOf(tx).Int(), js.ValueOf(ty).Int())
+					c.ctx.Call("rotate", js.ValueOf(angle).Float())
+					c.ctx.Call("translate", js.ValueOf(-tx).Int(), js.ValueOf(-ty).Int())
+
+					// Draw the mask canvas into the main canvas.
+					c.ctx.Call("drawImage", c.maskCanvas, 0, 0)
 					c.ctx.Call("restore")
 				}
 
