@@ -18,10 +18,10 @@ html, body {
 }
 
 #snapshot {
+	display: none;
 	position: absolute;
 	width: 80px;
 	height: 40px;
-	background-color: #0da307;
 	opacity: 0.8;
 	right: 20%;
 	top: 10%;

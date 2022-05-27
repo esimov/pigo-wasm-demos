@@ -228,6 +228,8 @@ func (c *Canvas) StartWebcam() (*Canvas, error) {
 		go func() {
 			c.video.Set("srcObject", args[0])
 			c.video.Call("play")
+
+			c.snapshotBtn.Get("style").Set("display", "block")
 			c.succCh <- struct{}{}
 		}()
 		return nil
