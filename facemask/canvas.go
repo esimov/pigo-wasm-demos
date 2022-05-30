@@ -58,10 +58,10 @@ type Canvas struct {
 
 const (
 	minTrianglePoints = 50
-	maxTrianglePoints = 800
+	maxTrianglePoints = 1000
 
 	minPointsThreshold = 2
-	maxPointsThreshold = 50
+	maxPointsThreshold = 25
 
 	minStrokeWidth = 0
 	maxStrokeWidth = 4
@@ -109,8 +109,8 @@ func NewCanvas() *Canvas {
 
 	c.wireframe = 0
 	c.strokeWidth = 0
-	c.trianglePoints = 200
-	c.pointsThreshold = 20
+	c.trianglePoints = 400
+	c.pointsThreshold = 10
 
 	pigo = detector.NewDetector()
 
@@ -311,7 +311,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 
 					// Calculate the lean angle between the two mouth points.
 					angle := 1 - (math.Atan2(float64(p2[0]-p1[0]), float64(p2[1]-p1[1])) * 180 / math.Pi / 90)
-					if scale < minScale || math.Abs(angle) > 0.1 {
+					if scale < minScale || math.Abs(angle) > 0.05 {
 						c.snapshotBtn.Get("style").Set("backgroundColor", "#ff0000")
 					} else {
 						c.snapshotBtn.Get("style").Set("backgroundColor", "#0da307")
@@ -326,9 +326,11 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 					}
 					imgScale *= 0.9
 
-					width, height := float64(maskWidth)*imgScale, float64(maskHeight)*imgScale*0.9
-					tx := row - int(width/2)
-					ty := p1[1] + (p1[1]-p2[1])/2 - int(height*0.5)
+					maskWidth, maskHeight := float64(maskWidth)*imgScale, float64(maskHeight)*imgScale*0.9
+					tx := row - int(maskWidth/2)
+					ty := p1[1] + (p1[1]-p2[1])/2 - int(maskHeight*0.5)
+
+					row += int(float64(row) * 0.02)
 					col += int(float64(scale) * 0.3)
 
 					// Substract the image under the detected face region.
@@ -369,7 +371,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 
 					c.ctx2.Call("drawImage", mask,
 						js.ValueOf(tx).Int(), js.ValueOf(ty).Int(),
-						js.ValueOf(width).Int(), js.ValueOf(height).Int(),
+						js.ValueOf(maskWidth).Int(), js.ValueOf(maskHeight).Int(),
 					)
 					c.ctx2.Call("restore")
 
@@ -416,12 +418,14 @@ func (c *Canvas) detectKeyPress() {
 				c.trianglePoints += 20
 			}
 		case keyCode.String() == "[":
+			fmt.Println(c.pointsThreshold)
 			if c.pointsThreshold > minPointsThreshold {
-				c.pointsThreshold -= 5
+				c.pointsThreshold -= 1
 			}
 		case keyCode.String() == "]":
+			fmt.Println(c.pointsThreshold)
 			if c.pointsThreshold <= maxPointsThreshold {
-				c.pointsThreshold += 5
+				c.pointsThreshold += 1
 			}
 		case keyCode.String() == "1":
 			if c.strokeWidth > minStrokeWidth {
@@ -435,8 +439,6 @@ func (c *Canvas) detectKeyPress() {
 			if c.strokeWidth <= maxStrokeWidth {
 				c.strokeWidth++
 			}
-		default:
-			c.showFrame = false
 		}
 		return nil
 	})
