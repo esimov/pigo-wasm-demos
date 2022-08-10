@@ -2,7 +2,7 @@
 
 <p align="center"><img src="https://user-images.githubusercontent.com/883386/80915158-06911a80-8d59-11ea-93bd-eca98750ad62.png" alt="Pigo Wasm demos" title="Pigo Wasm demos" width="400"/></p>
 
-This repository is a collection of Webassembly demos (which means they are running in the Web browser) showcasing a few examples of using the [Pigo](https://github.com/esimov/pigo) face detection library in real time. **This library meant to be continuously updated**.
+This repository is a collection of Webassembly demos showcasing a few examples of the [Pigo](https://github.com/esimov/pigo) face detection library running real time. **This repo will be continuously updated**.
 
 ## Install
 **Notice: at least Go 1.13 is required in order to run the demos!**
