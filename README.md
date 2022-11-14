@@ -1,10 +1,8 @@
 # pigo-wasm-demos
 
-[![License](https://img.shields.io/github/license/esimov/pigo-wasm-demos)](https://github.com/esimov/pigo-wasm-demos/blob/master/LICENSE)
-
 <p align="center"><img src="https://user-images.githubusercontent.com/883386/80915158-06911a80-8d59-11ea-93bd-eca98750ad62.png" alt="Pigo Wasm demos" title="Pigo Wasm demos" width="400"/></p>
 
-This repository is a collection of Webassembly demos (which means they are running in the Web browser) showcasing a few examples of using the [Pigo](https://github.com/esimov/pigo) face detection library in real time. **This library meant to be continuously updated**.
+This repository is a collection of Webassembly demos showcasing a few examples of the [Pigo](https://github.com/esimov/pigo) face detection library running real time. **This repo will be continuously updated**.
 
 ## Install
 **Notice: at least Go 1.13 is required in order to run the demos!**
@@ -97,9 +95,9 @@ $ make demo5
 ```bash
 $ make demo6
 ```
-![facemask](https://user-images.githubusercontent.com/883386/132861943-5f130ec2-dae2-4034-9abd-4c9de0de066c.gif)
+![facemask](https://user-images.githubusercontent.com/883386/170938798-9bc7b9b1-ffd4-4add-a536-057c11542991.gif)
 
-This demo is meant to be a proof of concept for an idea of generating personalized triangulated face masks. The orange dot at the bottom of the screen is showing up when the head alignment is the most appropriate for making a screen capture and this is when the head is aligned perpendicular (+/- a predefined threshold). This demo can be expanded way further.
+This demo is meant to be a proof of concept for an idea of generating personalized triangulated face masks. The rectangle at the top right corner of the screen will turn green when the head alignment is the most appropriate for making a screen capture and this is when the head is aligned perpendicular (+/- a predefined threshold) and close enough to the camera. This demo can be expanded way further.
 
 #### Key bindings:
 <kbd>f</kbd> - Show/hide detected face marker<br/>
