@@ -1,5 +1,4 @@
 //go:build js && wasm
-// +build js,wasm
 
 package bgblur
 
@@ -63,8 +62,8 @@ func NewCanvas() *Canvas {
 	c.doc = c.window.Get("document")
 	c.body = c.doc.Get("body")
 
-	c.windowSize.width = 768
-	c.windowSize.height = 576
+	c.windowSize.width = 1024
+	c.windowSize.height = 640
 
 	c.canvas = c.doc.Call("createElement", "canvas")
 	c.face = c.doc.Call("createElement", "canvas")

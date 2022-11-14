@@ -60,8 +60,8 @@ func NewCanvas() *Canvas {
 	c.doc = c.window.Get("document")
 	c.body = c.doc.Get("body")
 
-	c.windowSize.width = 768
-	c.windowSize.height = 576
+	c.windowSize.width = 1024
+	c.windowSize.height = 640
 
 	c.canvas = c.doc.Call("createElement", "canvas")
 	c.ellipse = c.doc.Call("createElement", "canvas")
@@ -182,6 +182,7 @@ func (c *Canvas) StartWebcam() (*Canvas, error) {
 	failure := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		go func() {
 			err = fmt.Errorf("failed initialising the camera: %s", args[0].String())
+			fmt.Println(err)
 			c.errCh <- err
 		}()
 		return nil

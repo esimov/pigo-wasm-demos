@@ -65,7 +65,7 @@ const (
 
 	minStrokeWidth = 0
 	maxStrokeWidth = 4
-	minScale       = 200
+	minScale       = 170
 )
 
 var (
@@ -83,8 +83,8 @@ func NewCanvas() *Canvas {
 	c.doc = c.window.Get("document")
 	c.body = c.doc.Get("body")
 
-	c.windowSize.width = 768
-	c.windowSize.height = 576
+	c.windowSize.width = 720
+	c.windowSize.height = 480
 
 	c.webcamCanvas = c.doc.Call("createElement", "canvas")
 	c.webcamCanvas.Set("width", c.windowSize.width)
@@ -300,7 +300,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 				c.ctx.Set("lineWidth", 2)
 				c.ctx.Set("strokeStyle", "rgba(255, 0, 0, 0.5)")
 
-				row, col, scale := det[1], det[0], int(float64(det[2])*0.8)
+				row, col, scale := det[1], det[0], int(float64(det[2])*0.72)
 
 				leftPupil := pigo.DetectLeftPupil(det)
 				rightPupil := pigo.DetectRightPupil(det)
@@ -331,7 +331,7 @@ func (c *Canvas) drawDetection(data []uint8, dets [][]int) error {
 					ty := p1[1] + (p1[1]-p2[1])/2 - int(maskHeight*0.5)
 
 					row += int(float64(row) * 0.02)
-					col += int(float64(scale) * 0.3)
+					col += int(float64(scale) * 0.4)
 
 					// Substract the image under the detected face region.
 					imgData := make([]byte, scale*scale*4)
