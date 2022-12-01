@@ -8,7 +8,6 @@ import (
 
 // httpConn web server connection parameters
 type httpConn struct {
-	address    string
 	port       string
 	root       string
 	cascadeDir string
@@ -16,8 +15,7 @@ type httpConn struct {
 
 func main() {
 	httpConn := &httpConn{
-		address:    "localhost",
-		port:       "5000",
+		port:       "6060",
 		root:       "./",
 		cascadeDir: "./cascade/",
 	}
@@ -32,7 +30,7 @@ func initServer(c *httpConn) {
 		log.Fatalln(err)
 	}
 
-	log.Printf("serving %s on %s:%s", c.root, c.address, c.port)
+	log.Printf("serving %s on localhost:%s", c.root, c.port)
 	http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir(c.root))))
 	http.Handle("/cascade/", http.StripPrefix("/cascade/", http.FileServer(http.Dir(c.cascadeDir))))
 
@@ -40,12 +38,5 @@ func initServer(c *httpConn) {
 		log.Print(r.RemoteAddr + " " + r.Method + " " + r.URL.String())
 		http.DefaultServeMux.ServeHTTP(w, r)
 	})
-	httpServer := http.Server{
-		Addr:    c.address + ":" + c.port,
-		Handler: handler,
-	}
-	err = httpServer.ListenAndServe()
-	if err != nil {
-		log.Fatalln(err)
-	}
+	log.Fatalln(http.ListenAndServe(":"+c.port, handler))
 }
