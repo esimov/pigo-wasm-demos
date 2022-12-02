@@ -25,7 +25,7 @@ demo5: facemask.wasm serve
 demo6: bgblur.wasm serve
 
 serve:
-	$(BROWSER) 'http://localhost:5000'
+	$(BROWSER) 'http://localhost:6060'
 	go run server/init.go
 
 clean:

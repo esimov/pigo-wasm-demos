@@ -6,37 +6,47 @@ import (
 	"path/filepath"
 )
 
+var defaultConn = &httpConn{
+	host:        "",
+	port:        "6060",
+	path:        "./",
+	cascadePath: "./cascade/",
+}
+
 // httpConn web server connection parameters
 type httpConn struct {
-	port       string
-	root       string
-	cascadeDir string
+	host        string
+	port        string
+	path        string
+	cascadePath string
 }
 
-func main() {
-	httpConn := &httpConn{
-		port:       "6060",
-		root:       "./",
-		cascadeDir: "./cascade/",
-	}
-	initServer(httpConn)
+func (c *httpConn) addr() string {
+	return c.host + ":" + c.port
 }
 
-// initServer initializes the webserver
-func initServer(c *httpConn) {
+func init() {
 	var err error
-	c.root, err = filepath.Abs(c.root)
+	defaultConn.path, err = filepath.Abs(defaultConn.path)
 	if err != nil {
 		log.Fatalln(err)
 	}
+	defaultConn.cascadePath, err = filepath.Abs(defaultConn.cascadePath)
+	if err != nil {
+		log.Fatalln(err)
+	}
+}
 
-	log.Printf("serving %s on localhost:%s", c.root, c.port)
-	http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir(c.root))))
-	http.Handle("/cascade/", http.StripPrefix("/cascade/", http.FileServer(http.Dir(c.cascadeDir))))
+func main() {
+	log.Printf("serving %s on %s", defaultConn.path, defaultConn.addr())
+
+	http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir(defaultConn.path))))
+	http.Handle("/cascade/", http.StripPrefix("/cascade/", http.FileServer(http.Dir(defaultConn.cascadePath))))
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Print(r.RemoteAddr + " " + r.Method + " " + r.URL.String())
 		http.DefaultServeMux.ServeHTTP(w, r)
 	})
-	log.Fatalln(http.ListenAndServe(":"+c.port, handler))
+
+	log.Fatalln(http.ListenAndServe(defaultConn.addr(), handler))
 }
